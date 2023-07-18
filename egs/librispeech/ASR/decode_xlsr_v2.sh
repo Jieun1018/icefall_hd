@@ -8,7 +8,7 @@ for method in greedy_search modified_beam_search fast_beam_search; do
 	  --max-duration 400 \
 	  --decoding-method $method \
 	  --max-sym-per-frame 1 \
-	  --encoder-type d2v \
+	  --encoder-type xlsr \
 	  --encoder-dim 1024 \
 	  --decoder-dim 1024 \
 	  --joiner-dim 1024
