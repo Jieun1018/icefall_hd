@@ -148,7 +148,7 @@ class XLSREncoder(EncoderInterface):
         logging.info("Pretrained data2vec model parameters reloaded!")
 
 
-def download_xlsr(model_url='https://dl.fbaipublicfiles.com/fairseq/data2vec/audio_base_ls.pt', dir_path='./models'):
+def download_xlsr(model_url='https://dl.fbaipublicfiles.com/fairseq/wav2vec/xlsr2_300m.pt', dir_path='./models'):
     os.makedirs(dir_path, exist_ok=True)
 
     #model_name = model_url.split("/")[-1]
