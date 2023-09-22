@@ -186,7 +186,7 @@ class LibriSpeechAsrDataModule:
         group.add_argument(
             "--enable-spec-aug",
             type=str2bool,
-            default=True,
+            default=False, #default=True,
             help="When enabled, use SpecAugment for training dataset.",
         )
 
@@ -211,7 +211,7 @@ class LibriSpeechAsrDataModule:
         group.add_argument(
             "--input-strategy",
             type=str,
-            default="PrecomputedFeatures",
+            default="AudioSamples", #default="PrecomputedFeatures",
             help="AudioSamples or PrecomputedFeatures",
         )
 
@@ -355,12 +355,14 @@ class LibriSpeechAsrDataModule:
         if self.args.on_the_fly_feats:
             validate = K2SpeechRecognitionDataset(
                 cut_transforms=transforms,
-                input_strategy=OnTheFlyFeatures(Fbank(FbankConfig(num_mel_bins=80))),
+                #input_strategy=OnTheFlyFeatures(Fbank(FbankConfig(num_mel_bins=80))),
+                input_strategy=eval(self.args.input_strategy)(),
                 return_cuts=self.args.return_cuts,
             )
         else:
             validate = K2SpeechRecognitionDataset(
                 cut_transforms=transforms,
+                input_strategy=eval(self.args.input_strategy)(),
                 return_cuts=self.args.return_cuts,
             )
         valid_sampler = DynamicBucketingSampler(
