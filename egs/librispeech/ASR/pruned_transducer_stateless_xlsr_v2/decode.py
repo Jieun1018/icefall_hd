@@ -274,18 +274,18 @@ def get_parser():
 
     ########## for CommonVoice #########
     parser.add_argument(
-        "--lid",
-        type=str2bool,
-        default=False,
-        help="To use language identification(True) or not(False)",
-    )
-
-    parser.add_argument(
-        "--data-type",
+        "--decode-data-type",
         type=str,
-        defalut='librispeech'
+        default='librispeech',
         help="Type of dataset (e.g. librispeech or commonvoice)",
     )
+
+    #parser.add_argument(
+    #    "--lid",
+    #    type=str2bool,
+    #    default=False,
+    #    help="To use language identification(True) or not(False)",
+    #)
 
     add_model_arguments(parser)
     add_rep_arguments(parser)
@@ -366,7 +366,7 @@ def decode_one_batch(
             simulate_streaming=True,
         )
     else:
-        encoder_out, encoder_out_lens = model.encoder(x=feature, x_lens=feature_lens)
+        encoder_out, encoder_out_lens, cnn_out = model.encoder(x=feature, x_lens=feature_lens)
 
     hyps = []
 
@@ -442,6 +442,38 @@ def decode_one_batch(
         )
         for hyp in sp.decode(hyp_tokens):
             hyps.append(hyp.split())
+    elif params.decoding_method == "lid" and params.max_sym_per_frame == 1:
+        cnn_out = cnn_out.transpose(1, 2)   #B, T, D
+        output = model.lstm(cnn_out)
+        
+        final = []
+        final = torch.tensor(final).to('cuda')
+        final = output[0][:, 100, :]
+
+        lid_final = model.lid_linear(final)
+        lid_final = model.softmax(lid_final)
+
+        #ref lid
+        target_lang = []
+
+        for sup in supervisions["cut"]:
+            lang = sup.supervisions[0].language
+            if lang == 'en':
+                target_lang.append(0)
+            elif lang == 'es':
+                target_lang.append(1)
+
+        target_lang = torch.tensor(target_lang, dtype=torch.long).to('cuda')
+
+        #Compute accuracy
+        num_corrects = (torch.max(lid_final, 1)[1].view(target_lang.size()).data == target_lang.data).float().sum()
+        acc = 100 * num_corrects / lid_final.size(0)
+        utt_num = lid_final.size(0)
+        #print('acc per batch:', acc)
+
+        return num_corrects, utt_num
+
+
     else:
         batch_size = encoder_out.size(0)
 
@@ -517,6 +549,9 @@ def decode_dataset(
       predicted result.
     """
     num_cuts = 0
+    
+    tot_utt = 0
+    tot_num_corrects = 0
 
     try:
         num_batches = len(dl)
@@ -532,7 +567,7 @@ def decode_dataset(
     for batch_idx, batch in enumerate(dl):
         texts = batch["supervisions"]["text"]
         cut_ids = [cut.id for cut in batch["supervisions"]["cut"]]
-
+        
         hyps_dict = decode_one_batch(
             params=params,
             model=model,
@@ -541,9 +576,15 @@ def decode_dataset(
             word_table=word_table,
             batch=batch,
         )
-
+        
+        if params.decoding_method == 'lid':
+            tot_num_corrects += int(hyps_dict[0])
+            tot_utt += hyps_dict[1]
+            print('calculating acc...', 100 * tot_num_corrects / tot_utt)
+            continue
         for name, hyps in hyps_dict.items():
             this_batch = []
+            #print('hyps', len(hyps), 'text', len(texts))
             assert len(hyps) == len(texts)
             for cut_id, hyp_words, ref_text in zip(cut_ids, hyps, texts):
                 ref_words = ref_text.split()
@@ -607,11 +648,13 @@ def save_results(
 @torch.no_grad()
 def main():
     parser = get_parser()
-    if params.data_type == 'librispeech':
+    '''
+    if params.decode_data_type == 'librispeech':
         LibriSpeechAsrDataModule.add_arguments(parser)
     else:
         CommonVoiceAsrDataModule.add_arguments(parser)
-
+    '''
+    CommonVoiceAsrDataModule.add_arguments(parser)
     args = parser.parse_args()
     args.exp_dir = Path(args.exp_dir)
 
@@ -626,6 +669,7 @@ def main():
         "fast_beam_search_nbest_LG",
         "fast_beam_search_nbest_oracle",
         "modified_beam_search",
+        "lid",
     )
     params.res_dir = params.exp_dir / params.decoding_method
 
@@ -789,7 +833,7 @@ def main():
     # we need cut ids to display recognition results.
     args.return_cuts = True
 
-    if params.data_type == 'librispeech':
+    if params.decode_data_type == 'librispeech':
         librispeech = LibriSpeechAsrDataModule(args)
     
         dev_clean_cuts = librispeech.dev_clean_cuts()

@@ -953,6 +953,7 @@ class CommonVoiceAsrDataModule:
         else:
             validate = K2SpeechRecognitionDataset(
                 cut_transforms=transforms,
+                input_strategy=eval(self.args.input_strategy)(),
                 return_cuts=self.args.return_cuts,
             )
         valid_sampler = DynamicBucketingSampler(
