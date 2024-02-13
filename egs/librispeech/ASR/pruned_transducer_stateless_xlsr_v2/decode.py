@@ -48,7 +48,7 @@ import k2
 import sentencepiece as spm
 import torch
 import torch.nn as nn
-from asr_datamodule import LibriSpeechAsrDataModule
+from asr_datamodule import LibriSpeechAsrDataModule, CommonVoiceAsrDataModule
 from beam_search import (
     beam_search,
     fast_beam_search_nbest,
@@ -270,6 +270,21 @@ def get_parser():
         type=int,
         default=64,
         help="left context can be seen during decoding (in frames after subsampling)",
+    )
+
+    ########## for CommonVoice #########
+    parser.add_argument(
+        "--lid",
+        type=str2bool,
+        default=False,
+        help="To use language identification(True) or not(False)",
+    )
+
+    parser.add_argument(
+        "--data-type",
+        type=str,
+        defalut='librispeech'
+        help="Type of dataset (e.g. librispeech or commonvoice)",
     )
 
     add_model_arguments(parser)
@@ -592,7 +607,11 @@ def save_results(
 @torch.no_grad()
 def main():
     parser = get_parser()
-    LibriSpeechAsrDataModule.add_arguments(parser)
+    if params.data_type == 'librispeech':
+        LibriSpeechAsrDataModule.add_arguments(parser)
+    else:
+        CommonVoiceAsrDataModule.add_arguments(parser)
+
     args = parser.parse_args()
     args.exp_dir = Path(args.exp_dir)
 
@@ -769,27 +788,36 @@ def main():
 
     # we need cut ids to display recognition results.
     args.return_cuts = True
-    librispeech = LibriSpeechAsrDataModule(args)
-    
-    ########dev-clean, dev-other##########
-    dev_clean_cuts = librispeech.dev_clean_cuts()
-    dev_other_cuts = librispeech.dev_other_cuts()
 
-    dev_clean_dl = librispeech.test_dataloaders(dev_clean_cuts)
-    dev_other_dl = librispeech.test_dataloaders(dev_other_cuts)
-    #######################################
-
-    test_clean_cuts = librispeech.test_clean_cuts()
-    test_other_cuts = librispeech.test_other_cuts()
-
-    test_clean_dl = librispeech.test_dataloaders(test_clean_cuts)
-    test_other_dl = librispeech.test_dataloaders(test_other_cuts)
+    if params.data_type == 'librispeech':
+        librispeech = LibriSpeechAsrDataModule(args)
     
-    #test_sets = ["test-clean", "test-other"]
-    #test_dl = [test_clean_dl, test_other_dl]
-    
-    test_sets = ["dev-clean", "dev-other", "test-clean", "test-other"]
-    test_dl = [dev_clean_dl, dev_other_dl, test_clean_dl, test_other_dl]
+        dev_clean_cuts = librispeech.dev_clean_cuts()
+        dev_other_cuts = librispeech.dev_other_cuts()
+
+        dev_clean_dl = librispeech.test_dataloaders(dev_clean_cuts)
+        dev_other_dl = librispeech.test_dataloaders(dev_other_cuts)
+
+        test_clean_cuts = librispeech.test_clean_cuts()
+        test_other_cuts = librispeech.test_other_cuts()
+
+        test_clean_dl = librispeech.test_dataloaders(test_clean_cuts)
+        test_other_dl = librispeech.test_dataloaders(test_other_cuts)
+        
+        test_sets = ["dev-clean", "dev-other", "test-clean", "test-other"]
+        test_dl = [dev_clean_dl, dev_other_dl, test_clean_dl, test_other_dl]
+
+    else:
+        commonvoice = CommonVoiceAsrDataModule(args)
+
+        dev_cuts = commonvoice.dev_full_cuts()
+        test_cuts = commonvoice.test_full_cuts()
+
+        dev_dl = commonvoice.valid_dataloaders(dev_cuts)
+        test_dl = commonvoice.test_dataloaders(test_cuts)
+
+        test_sets = ["dev", "test"]
+        test_dl = [dev_dl, test_dl]
 
     for test_set, test_dl in zip(test_sets, test_dl):
         results_dict = decode_dataset(

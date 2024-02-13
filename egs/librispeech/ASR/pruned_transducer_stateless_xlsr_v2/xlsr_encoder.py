@@ -129,6 +129,7 @@ class XLSREncoder(EncoderInterface):
                 mask = ft,
                 features_only=True,
             )
+            cnn_outputs = self.encoders.feature_extractor(xs_pad)
 
         xs_pad = enc_outputs["x"]  # (B,T,C),
         bs = xs_pad.shape[0]
@@ -141,7 +142,7 @@ class XLSREncoder(EncoderInterface):
         if self.output_layer is not None:
             xs_pad = self.output_layer(xs_pad)
 
-        return xs_pad, olens
+        return xs_pad, olens, cnn_outputs
 
     def reload_pretrained_parameters(self):
         self.encoders.load_state_dict(self.pretrained_params)

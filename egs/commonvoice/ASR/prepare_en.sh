@@ -4,7 +4,6 @@ set -eou pipefail
 
 nj=16
 stage=$1
-#stage=-1
 stop_stage=100
 
 # Split data/${lang}set to this number of pieces
@@ -41,7 +40,7 @@ num_splits=1000
 dl_dir=/DB/CommonVoice
 release=cv-corpus-15.0-2023-09-08
 #release=cv-corpus-13.0-2023-03-09
-lang=es	#ko, es
+lang=en	#ko, es
 
 . shared/parse_options.sh || exit 1
 

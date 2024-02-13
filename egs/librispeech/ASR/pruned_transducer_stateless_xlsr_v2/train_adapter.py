@@ -41,31 +41,31 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
   --full-libri 1 \
   --max-duration 550
 
-# For xlsr training:
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
+# For d2v-T training:
+export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
-./pruned_transducer_stateless_xlsr_v2/train.py \
-    --wandb False \
+./pruned_transducer_stateless_d2v_v2/train.py \
+    --wandb true \
     --input-strategy AudioSamples \
     --enable-spec-aug False \
     --multi-optim True \
-    --world-size 4 \ 
+    --world-size 8 \ 
     --num-epochs 30 \
     --start-epoch 1 \ 
     --full-libri 0 \ 
-    --exp-dir ./pruned_transducer_stateless_xlsr_v2/$1 \
-    --max-duration 50 \
-    --freeze-finetune-updates 800 \
+    --exp-dir ./pruned_transducer_stateless_d2v_v2/$1 \
+    --max-duration 250 \
+    --freeze-finetune-updates 2000 \
     --use-fp16 1 \ 
     --peak-enc-lr 0.001 \
     --peak-dec-lr 0.05 \
     --accum-grads 1 \ 
-    --encoder-type xlsr \
+    --encoder-type d2v \
     --additional-block True \
-    --encoder-dim 1024 \
-    --decoder-dim 1024 \
-    --joiner-dim 1024 \
-    --prune-range 5 \
+    --encoder-dim 768 \
+    --decoder-dim 768 \
+    --joiner-dim 768 \
+    --prune-range 20 \
     --context-size 2 \ 
     --ctc-loss-scale 0.2
 
@@ -87,7 +87,7 @@ import sentencepiece as spm
 import torch
 import torch.multiprocessing as mp
 import torch.nn as nn
-from asr_datamodule import LibriSpeechAsrDataModule, CommonVoiceAsrDataModule
+from asr_datamodule import LibriSpeechAsrDataModule
 from decoder import Decoder
 from joiner import Joiner
 from lhotse.cut import Cut
@@ -100,7 +100,6 @@ from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from zipformer import Zipformer
-#from data2vec_encoder import FairSeqData2VecEncoder
 from xlsr_encoder import XLSREncoder
 
 from icefall import diagnostics
@@ -120,7 +119,6 @@ from icefall.utils import (
     encode_supervisions,
     setup_logger,
     str2bool,
-    #save_args,
 )
 
 import wandb
@@ -139,6 +137,29 @@ def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
     model.encoder.num_updates = int(batch_count)
 
 
+def add_adapter_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--add-adapter",
+        type=str2bool,
+        default=False,
+        help="add adapter to rep model's encoder"
+    )
+    
+    parser.add_argument(
+        "--adapter-lr",
+        type=float,
+        default=0.0001,
+        help="adapter learning rate"
+    )
+
+    parser.add_argument(
+        "--gender",
+        type=str,
+        default='male',
+        help="select gender"
+    )
+
+
 def add_rep_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--wandb",
@@ -146,6 +167,13 @@ def add_rep_arguments(parser: argparse.ArgumentParser):
         default=True,
         help="Use wandb for MLOps",
     )
+    parser.add_argument(
+        "--hpo",
+        type=str2bool,
+        default=False,
+        help="Use small db for HPO",
+    )
+
     parser.add_argument(
         "--accum-grads",
         type=int,
@@ -178,7 +206,7 @@ def add_rep_arguments(parser: argparse.ArgumentParser):
         "--encoder-type",
         type=str,
         default='xlsr',
-        help="Type of encoder (e.g. conformer, w2v, xlsr...",
+        help="Type of encoder (e.g. conformer, w2v, d2v...",
     )
     
     parser.add_argument(
@@ -205,21 +233,6 @@ def add_rep_arguments(parser: argparse.ArgumentParser):
         type=int,
         default=200,
         help="decode interval",
-    )
-    
-    ########## for CommonVoice ##########
-    parser.add_argument(
-        "--data-type",
-        type=str,
-        default='librispeech',
-        help="Type of dataset (e.g. librispeech or commonvoice)",
-    )
-
-    parser.add_argument(
-        "--lid",
-        type=str2bool,
-        default=False,
-        help="To use language identification(True) or not(False)"
     )
         
 
@@ -286,14 +299,14 @@ def add_model_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--decoder-dim",
         type=int,
-        default=512,
+        default=768,
         help="Embedding dimension in the decoder model.",
     )
 
     parser.add_argument(
         "--joiner-dim",
         type=int,
-        default=512,
+        default=768,
         help="""Dimension used in the joiner model.
         Outputs from the encoder and decoder model are projected
         to this dimension before adding.
@@ -331,6 +344,13 @@ def get_parser():
         "--num-epochs",
         type=int,
         default=30,
+        help="Number of epochs to train.",
+    )
+    
+    parser.add_argument(
+        "--num-updates",
+        type=int,
+        default=5000,
         help="Number of epochs to train.",
     )
 
@@ -461,7 +481,7 @@ def get_parser():
     parser.add_argument(
         "--save-every-n",
         type=int,
-        default=2000,
+        default=200,
         help="""Save checkpoint after processing this number of batches"
         periodically. We save checkpoint to exp-dir/ whenever
         params.batch_idx_train % save_every_n == 0. The checkpoint filename
@@ -485,7 +505,7 @@ def get_parser():
     parser.add_argument(
         "--average-period",
         type=int,
-        default=200,
+        default=10,
         help="""Update the averaged model, namely `model_avg`, after processing
         this number of batches. `model_avg` is a separate version of model,
         in which each floating-point parameter is the average of all the
@@ -504,6 +524,7 @@ def get_parser():
 
     add_model_arguments(parser)
     add_rep_arguments(parser)
+    add_adapter_arguments(parser)
 
     return parser
 
@@ -560,16 +581,17 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 50,
+            "log_interval": 20,
             "reset_interval": 200,
-            "valid_interval": 30000000,  # For the 100h subset, use 800
+            "valid_interval": 3000,  # For the 100h subset, use 800
             # parameters for zipformer
             "feature_dim": 80,
             "subsampling_factor": 320,  # not passed in, this is fixed.
             # parameters for ctc loss
             "beam_size": 10,
             "use_double_scores": True,
-            "warm_step": 1000,
+            "warm_step": 3000,
+            #"warm_step": 4000,
             #"warm_step": 3000,
             "env_info": get_env_info(),
         }
@@ -643,7 +665,6 @@ def get_transducer_model(params: AttributeDict) -> nn.Module:
         decoder_dim=params.decoder_dim,
         joiner_dim=params.joiner_dim,
         vocab_size=params.vocab_size,
-        lid=params.lid,
     )
     return model
 
@@ -695,6 +716,7 @@ def load_checkpoint_if_available(
         model_avg=model_avg,
         optimizer=optimizer,
         scheduler=scheduler,
+        strict=True if not params.add_adapter else False,
     )
 
     keys = [
@@ -713,6 +735,8 @@ def load_checkpoint_if_available(
 
         if "cur_batch_idx" in saved_params:
             params["cur_batch_idx"] = saved_params["cur_batch_idx"]
+
+    params.batch_idx_train = 0
 
     return saved_params
 
@@ -794,14 +818,13 @@ def compute_loss(
         values >= 1.0 are fully warmed up and have all modules present.
     """
     device = model.device if isinstance(model, DDP) else next(model.parameters()).device
-    
     feature = batch["inputs"]
     # at entry, feature is (N, T, C)
     assert feature.ndim == 2 or feature.ndim == 3
     feature = feature.to(device)
 
     supervisions = batch["supervisions"]
-     
+
     if feature.ndim == 2:
         feature_lens = []
         for supervision in supervisions['cut']:
@@ -811,62 +834,40 @@ def compute_loss(
 
     elif feature.ndim == 3:
         feature_lens = supervisions["num_frames"].to(device)
-    
-    if "start_frame" not in supervisions:
-        supervisions["start_frame"] = supervisions["start_sample"]
-        supervisions["num_frames"] = supervisions["num_samples"]
 
     batch_idx_train = params.batch_idx_train
     warm_step = params.warm_step
 
     texts = batch["supervisions"]["text"]
-   
-    ### For LID
-    target_lang = []
-
-    for sup in batch["supervisions"]["cut"]:
-        lang = sup.supervisions[0].language
-        if lang == 'en':
-            target_lang.append(0)
-        elif lang == 'es':
-            target_lang.append(1)
     
-    target_lang = torch.tensor(target_lang, dtype=torch.long)
-    ###
-
     token_ids = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(token_ids).to(device)
 
     with torch.set_grad_enabled(is_training):
-        simple_loss, pruned_loss, ctc_output, ce_loss = model(
+        simple_loss, pruned_loss, ctc_output = model(
             x=feature,
             x_lens=feature_lens,
             y=y,
             prune_range=params.prune_range,
             am_scale=params.am_scale,
             lm_scale=params.lm_scale,
-            target_lang=target_lang,
         )
-        
-        if params.lid:
-            loss = ce_loss
-        
-        else:
-            s = params.simple_loss_scale
-            # take down the scale on the simple loss from 1.0 at the start
-            # to params.simple_loss scale by warm_step.
-            simple_loss_scale = (
-                s
-                if batch_idx_train >= warm_step
-                else 1.0 - (batch_idx_train / warm_step) * (1.0 - s)
-            )
-            pruned_loss_scale = (
-                1.0
-                if batch_idx_train >= warm_step
-                else 0.1 + 0.9 * (batch_idx_train / warm_step)
-            )
 
-            loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss
+        s = params.simple_loss_scale
+        # take down the scale on the simple loss from 1.0 at the start
+        # to params.simple_loss scale by warm_step.
+        simple_loss_scale = (
+            s
+            if batch_idx_train >= warm_step
+            else 1.0 - (batch_idx_train / warm_step) * (1.0 - s)
+        )
+        pruned_loss_scale = (
+            1.0
+            if batch_idx_train >= warm_step
+            else 0.1 + 0.9 * (batch_idx_train / warm_step)
+        )
+
+        loss = simple_loss_scale * simple_loss + pruned_loss_scale * pruned_loss
     
     info = MetricsTracker()
     
@@ -909,12 +910,21 @@ def compute_loss(
     if decode:
         model.eval()
         with torch.no_grad():
-            hypos = model.module.decode(
-                x=feature,
-                x_lens=feature_lens,
-                y=y,
-                sp=sp
-            )
+            try:
+                hypos = model.module.decode(
+                    x=feature,
+                    x_lens=feature_lens,
+                    y=y,
+                    sp=sp
+                )
+            except:
+                hypos = model.decode(
+                    x=feature,
+                    x_lens=feature_lens,
+                    y=y,
+                    sp=sp
+                )
+
             logging.info(f'ref: {batch["supervisions"]["text"][0]}')
             logging.info(f'hyp: {" ".join(hypos[0])}')
         model.train()
@@ -926,9 +936,8 @@ def compute_loss(
     # Note: We use reduction=sum while computing the loss.
     info["utterances"] = feature.size(0)
     info["loss"] = loss.detach().cpu().item()
-    if not params.lid:
-        info["simple_loss"] = simple_loss.detach().cpu().item()
-        info["pruned_loss"] = pruned_loss.detach().cpu().item()
+    info["simple_loss"] = simple_loss.detach().cpu().item()
+    info["pruned_loss"] = pruned_loss.detach().cpu().item()
 
     return loss, info
 
@@ -1024,6 +1033,8 @@ def train_one_epoch(
         scheduler_enc, scheduler_dec = scheduler[0], scheduler[1]
 
     for batch_idx, batch in enumerate(train_dl):
+        if params.batch_idx_train > params.num_updates:
+            break
         if batch_idx < cur_batch_idx:
             continue
         cur_batch_idx = batch_idx
@@ -1041,7 +1052,9 @@ def train_one_epoch(
                     is_training=True,
                     decode = True if batch_idx % params.decode_interval == 0 else False,
                 )
-            loss_info.reduce(loss.device)
+
+            try: loss_info.reduce(loss.device)
+            except: pass
 
             numel = params.world_size / (params.accum_grads * loss_info["utterances"])
             loss *= numel ## normalize loss over utts(batch size)
@@ -1053,7 +1066,7 @@ def train_one_epoch(
             # in the batch and there is no normalization to it so far.
             scaler.scale(loss).backward()
 
-            if params.multi_optim and batch_idx % params.accum_grads == 0:
+            if params.multi_optim and (batch_idx+1) % params.accum_grads == 0:
                 set_batch_count(model, params.batch_idx_train)
                 scheduler_enc.step_batch(params.batch_idx_train)
                 scheduler_dec.step_batch(params.batch_idx_train)
@@ -1062,7 +1075,7 @@ def train_one_epoch(
                 scaler.update()
                 optimizer_enc.zero_grad()
                 optimizer_dec.zero_grad()
-            elif not params.multi_optim and batch_idx % params.accum_grads == 0:
+            elif not params.multi_optim and (batch_idx+1) % params.accum_grads == 0:
                 set_batch_count(model, params.batch_idx_train)
                 scheduler.step_batch(params.batch_idx_train)
                 scaler.step(optimizer)
@@ -1107,11 +1120,13 @@ def train_one_epoch(
                 rank=rank,
             )
             del params.cur_batch_idx
+            '''
             remove_checkpoints(
                 out_dir=params.exp_dir,
                 topk=params.keep_last_k,
                 rank=rank,
             )
+            '''
 
         if batch_idx % 100 == 0 and params.use_fp16:
             # If the grad scale was less than 1, try increasing it.    The _growth_interval
@@ -1130,13 +1145,16 @@ def train_one_epoch(
                     f"grad_scale is too small, exiting: {cur_grad_scale}"
                 )
 
-        if params.batch_idx_train > 4000 and loss > 300:
-            wb.log({"valid/loss": 10000})
-            raise RunteimError(
-                    f"divergence... exiting: loss={loss}"
-                )
+        #if params.batch_idx_train > 4000 and loss > 300 and params.wandb:
+        #    wb.log({"valid/loss": 10000})
+        #    raise RuntimeError(
+        #            f"divergence... exiting: loss={loss}"
+        #        )
 
         if batch_idx % (params.log_interval*params.accum_grads) == 0:
+            #for n, p in model.named_parameters():
+            #    if 'adapter' in n:
+            #        print(p)
             if params.multi_optim:
                 cur_enc_lr = scheduler_enc.get_last_lr()[0]
                 cur_dec_lr = scheduler_dec.get_last_lr()[0]
@@ -1193,8 +1211,7 @@ def train_one_epoch(
                 wb.log({"train/simple_loss": loss_info["simple_loss"]*numel})
                 wb.log({"train/pruned_loss": loss_info["pruned_loss"]*numel})
                 wb.log({"train/ctc_loss": loss_info["ctc_loss"]*numel})
-
-#if batch_idx % params.valid_interval == 0 and not params.print_diagnostics:
+    
     '''
     logging.info("Computing validation loss")
     valid_info = compute_validation_loss(
@@ -1216,7 +1233,11 @@ def train_one_epoch(
     
     if wb is not None and rank == 0:
         numel = 1 / (params.accum_grads * valid_info["utterances"])
-        wb.log({"valid/loss": valid_info["loss"]*numel})
+        #wb.log({"valid/loss": valid_info["loss"]*numel})
+        wb.log({"valid/loss": numel*(valid_info["simple_loss"]
+                                     +valid_info["pruned_loss"]
+                                     +valid_info["ctc_loss"]
+                                    )})
         wb.log({"valid/simple_loss": valid_info["simple_loss"]*numel})
         wb.log({"valid/pruned_loss": valid_info["pruned_loss"]*numel})
         wb.log({"valid/ctc_loss": valid_info["ctc_loss"]*numel})
@@ -1279,9 +1300,6 @@ def run(rank, world_size, args, wb=None):
 
     assert params.save_every_n >= params.average_period
     model_avg: Optional[nn.Module] = None
-    #if rank == 0:
-        # model_avg is only used with rank 0
-    #    model_avg = copy.deepcopy(model).to(torch.float64)
 
     assert params.start_epoch > 0, params.start_epoch
     checkpoints = load_checkpoint_if_available(
@@ -1338,17 +1356,13 @@ def run(rank, world_size, args, wb=None):
             [name_param_pair[0] for name_param_pair in model.named_parameters()]
         )
 
-        #for n in parameters_names:
-        #    print(n)
-        #exit()
-
         logging.info(f"len name = {len(parameters_names)}")
         logging.info(f"len param = {len(list(model.parameters()))}")
         
         optimizer = ScaledAdam(
             model.parameters(),
             lr=params.base_lr,
-            clipping_scale=5.0,
+            clipping_scale=2.0,
             parameters_names=parameters_names,
         )
 
@@ -1385,19 +1399,13 @@ def run(rank, world_size, args, wb=None):
 
     if params.inf_check:
         register_inf_check_hooks(model)
-    
-    if params.data_type == 'librispeech':
-        librispeech = LibriSpeechAsrDataModule(args)
 
-        train_cuts = librispeech.train_clean_100_cuts()
-        if params.full_libri:
-            train_cuts += librispeech.train_clean_360_cuts()
-            train_cuts += librispeech.train_other_500_cuts()
-    else:
-        commonvoice = CommonVoiceAsrDataModule(args)
-        
-        train_cuts = commonvoice.train_full_cuts()
-        #train_cuts += commonvoice.train_es_cuts()
+    librispeech = LibriSpeechAsrDataModule(args)
+
+    train_cuts = librispeech.train_clean_100_cuts()
+    if params.full_libri:
+        train_cuts += librispeech.train_clean_360_cuts()
+        train_cuts += librispeech.train_other_500_cuts()
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds
@@ -1418,24 +1426,14 @@ def run(rank, world_size, args, wb=None):
         sampler_state_dict = checkpoints["sampler"]
     else:
         sampler_state_dict = None
-    
-    if params.data_type == 'librispeech':
-        train_dl = librispeech.train_dataloaders(
-            train_cuts, sampler_state_dict=sampler_state_dict
-        )
 
-        valid_cuts = librispeech.dev_clean_cuts()
-        valid_cuts += librispeech.dev_other_cuts()
-        valid_dl = librispeech.valid_dataloaders(valid_cuts)
-    else:
-        train_dl = commonvoice.train_dataloaders(
-            train_cuts, sampler_state_dict=sampler_state_dict
-        )
+    train_dl = librispeech.train_dataloaders(
+        train_cuts, sampler_state_dict=sampler_state_dict
+    )
 
-        valid_cuts = commonvoice.dev_full_cuts()
-        #valid_cuts += commonvoice.dev_es_cuts()
-        valid_dl = commonvoice.valid_dataloaders(valid_cuts)
-    
+    valid_cuts = librispeech.dev_clean_cuts()
+    valid_cuts += librispeech.dev_other_cuts()
+    valid_dl = librispeech.valid_dataloaders(valid_cuts)
     
     '''
     if not params.print_diagnostics:
@@ -1486,17 +1484,196 @@ def run(rank, world_size, args, wb=None):
         if params.print_diagnostics:
             diagnostic.print_diagnostics()
             break
+        
+        '''
+        if epoch % 50 == 0:
+            save_checkpoint(
+                params=params,
+                model=model,
+                model_avg=model_avg,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                sampler=train_dl.sampler,
+                scaler=scaler,
+                rank=rank,
+            )
+        '''
 
-        save_checkpoint(
+    logging.info("Done!")
+
+    if world_size > 1:
+        torch.distributed.barrier()
+        cleanup_dist()
+
+
+def run_adapter(rank, world_size, args, wb=None):
+    """
+    Args:
+      rank:
+        It is a value between 0 and `world_size-1`, which is
+        passed automatically by `mp.spawn()` in :func:`main`.
+        The node with rank 0 is responsible for saving checkpoint.
+      world_size:
+        Number of GPUs for DDP training.
+      args:
+        The return value of get_parser().parse_args()
+    """
+    params = get_params()
+    params.update(vars(args))
+
+    fix_random_seed(params.seed)
+    if world_size > 1:
+        setup_dist(rank, world_size, params.master_port)
+
+    setup_logger(f"{params.exp_dir}/log/log-train")
+    logging.info("Training started")
+
+    if args.tensorboard and rank == 0:
+        tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")
+    else:
+        tb_writer = None
+
+    device = torch.device("cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda", rank)
+    logging.info(f"Device: {device}")
+
+    sp = spm.SentencePieceProcessor()
+    sp.load(params.bpe_model)
+
+    # <blk> is defined in local/train_bpe_model.py
+    params.blank_id = sp.piece_to_id("<blk>")
+    params.vocab_size = sp.get_piece_size()
+
+    logging.info(params)
+
+    logging.info("About to create model")
+    model = get_transducer_model(params)
+
+    num_param = sum([p.numel() if p.requires_grad else 0 for p in model.parameters()])
+    logging.info(f"Number of model parameters: {num_param}")
+
+    assert params.save_every_n >= params.average_period
+    model_avg: Optional[nn.Module] = None
+
+    assert params.start_epoch > 0, params.start_epoch
+    checkpoints = load_checkpoint_if_available(
+        params=params, model=model, model_avg=model_avg
+    )
+
+    model.to(device)
+    if world_size > 1:
+        logging.info("Using DDP")
+        model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    
+    adapter_names = []
+    adapter_param = []
+    for n, p  in model.named_parameters():
+        if 'adapters' in n or 'joiner' in n or 'simple' in n or 'ctc' in n:
+            p.requires_grad = True
+            adapter_names.append(n)
+            adapter_param.append(p)
+        #elif 'joiner' in n or 'simple' in n or 'ctc' in n:
+        #    p.requires_grad = True
+        else:
+            p.requires_grad = False
+    
+    optimizer_adapter = ScaledAdam(
+            adapter_param,
+            lr=params.adapter_lr,
+            clipping_scale=5.0,
+            parameters_names=[adapter_names],
+        )
+    scheduler_adapter = Eden(optimizer_adapter, 10000, 7) #params.lr_batche, params.lr_epochs)
+
+    optimizer, scheduler = optimizer_adapter, scheduler_adapter
+    
+    librispeech = LibriSpeechAsrDataModule(args)
+    
+    train_cuts = librispeech.train_clean_100_cuts()
+    if params.full_libri:
+        train_cuts += librispeech.train_clean_360_cuts()
+        train_cuts += librispeech.train_other_500_cuts()
+
+    #train_cuts = librispeech.train_clean_10_cuts(option='male')
+    #train_cuts = librispeech.test_clean_user(option='big')
+    #train_cuts = librispeech.vox_cuts(option=params.spk_id)
+    
+    def remove_short_and_long_utt(c: Cut):
+        return 1.0 <= c.duration <= 20.0
+
+    train_cuts = train_cuts.filter(remove_short_and_long_utt)
+    
+    sampler_state_dict = None
+
+    train_dl = librispeech.train_dataloaders(
+        train_cuts, sampler_state_dict=sampler_state_dict
+    )
+    #train_dl = librispeech.test_dataloaders(
+    #    train_cuts
+    #)
+    logging.info(model)
+    
+    '''
+    print('\n'*5)
+    print('-'*30)
+    for batch in train_dl:
+        print(batch)
+    print('-'*30)
+    print('\n'*5)
+    exit()
+    '''
+
+    valid_cuts = librispeech.dev_clean_cuts()
+    valid_cuts += librispeech.dev_other_cuts()
+    valid_dl = librispeech.valid_dataloaders(valid_cuts)
+    
+    scaler = GradScaler(enabled=params.use_fp16, init_scale=1.0)
+
+    for epoch in range(params.start_epoch, params.num_epochs + 1):
+        logging.info(f"update num : {params.batch_idx_train}")
+        scheduler.step_epoch(epoch - 1)
+        fix_random_seed(params.seed + epoch - 1)
+        train_dl.sampler.set_epoch(epoch - 1)
+
+        if tb_writer is not None:
+            tb_writer.add_scalar("train/epoch", epoch, params.batch_idx_train)
+
+        params.cur_epoch = epoch
+
+        train_one_epoch(
             params=params,
             model=model,
             model_avg=model_avg,
             optimizer=optimizer,
             scheduler=scheduler,
-            sampler=train_dl.sampler,
+            sp=sp,
+            train_dl=train_dl,
+            valid_dl=valid_dl,
             scaler=scaler,
+            tb_writer=tb_writer,
+            world_size=world_size,
             rank=rank,
+            wb=wb,
         )
+
+        if params.print_diagnostics:
+            diagnostic.print_diagnostics()
+            break
+        
+        '''
+        if epoch % 10 == 0:
+            save_checkpoint(
+                params=params,
+                model=model,
+                model_avg=model_avg,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                sampler=train_dl.sampler,
+                scaler=scaler,
+                rank=rank,
+            )
+        '''
 
     logging.info("Done!")
 
@@ -1581,26 +1758,27 @@ def scan_pessimistic_batches_for_oom(
 
 def main():
     parser = get_parser()
-    #LibriSpeechAsrDataModule.add_arguments(parser)
-    CommonVoiceAsrDataModule.add_arguments(parser)
+    LibriSpeechAsrDataModule.add_arguments(parser)
     args = parser.parse_args()
-    #args.exp_dir = args.exp_dir + str(random.randint(0,400))
+    if args.wandb: args.exp_dir = args.exp_dir + str(random.randint(0,400))
     args.exp_dir = Path(args.exp_dir)
 
     logging.info("save arguments to config.yaml...")
-    #save_args(args)
-
-    # for wandb
-    if args.wandb: wb = wandb.init(project="", entity="", config=vars(args))
+    
+    if args.wandb: wb = wandb.init(project="xlsr-adapter", entity="dohe0342", config=vars(args))
     else: wb = None
 
     world_size = args.world_size
     assert world_size >= 1
     if world_size > 1:
-        mp.spawn(run, args=(world_size, args, wb), nprocs=world_size, join=True)
+        mp.spawn(run if not args.add_adapter else run_adapter, 
+                 args=(world_size, args, wb), 
+                 nprocs=world_size, 
+                 join=True
+            )
     else:
-        run(rank=0, world_size=1, args=args, wb=wb)
-
+        if args.add_adapter: run_adapter(rank=0, world_size=1, args=args, wb=wb)
+        else: run(rank=0, world_size=1, args=args, wb=wb)
 
 torch.set_num_threads(1)
 torch.set_num_interop_threads(1)
