@@ -92,9 +92,13 @@ def preprocess_commonvoice(
 
         logging.info(f"Normalizing text in {partition}")
         for sup in m["supervisions"]:
+            print('sup', sup)
+            #print('keys', sup.keys())
+            print('test', sup.text)
             text = str(sup.text)
             orig_text = text
             sup.text = normalize_text(sup.text)
+            print('normalize', sup.text)
             text = str(sup.text)
             if len(orig_text) != len(text):
                 logging.info(

@@ -469,7 +469,6 @@ def decode_one_batch(
         num_corrects = (torch.max(lid_final, 1)[1].view(target_lang.size()).data == target_lang.data).float().sum()
         acc = 100 * num_corrects / lid_final.size(0)
         utt_num = lid_final.size(0)
-        #print('acc per batch:', acc)
 
         return num_corrects, utt_num
 
@@ -584,7 +583,6 @@ def decode_dataset(
             continue
         for name, hyps in hyps_dict.items():
             this_batch = []
-            #print('hyps', len(hyps), 'text', len(texts))
             assert len(hyps) == len(texts)
             for cut_id, hyp_words, ref_text in zip(cut_ids, hyps, texts):
                 ref_words = ref_text.split()
