@@ -81,7 +81,7 @@ class Transducer(nn.Module):
         if lid == True:
             self.lid = True
             self.lstm = nn.LSTM(512, 256, 1, batch_first=True)
-            self.lid_linear = nn.Linear(256, 2)
+            self.lid_linear = nn.Linear(256, 3)
             self.softmax = nn.Softmax(dim=1)
             self.ce_loss = nn.CrossEntropyLoss(reduction='mean')
 
@@ -145,20 +145,24 @@ class Transducer(nn.Module):
             # x_lens == olens
             final = []
             final = torch.tensor(final).to('cuda')
+            
+            # for 2 seconds lid
             final = output[0][:, 100, :]
+
             '''
+            # for all seconds lid
             for i in range(len(x_lens)):
                 new_output = output[0][i, x_lens[i]-1, :]
                 new_output = new_output.reshape(1, -1)
                 final = torch.cat((final, new_output), dim=0)
             '''
+
             lid_final = self.lid_linear(final)
             lid_final = self.softmax(lid_final)
             #lid_prob = self.softmax(lid_final)
 
             # Compute CE Loss
             ce_loss = self.ce_loss(lid_final, target_lang)
-            
             #prob = lid_final.max(dim=1)[0]
             #pred = lid_final.max(dim=1)[1]
             num_corrects = (torch.max(lid_final, 1)[1].view(target_lang.size()).data == target_lang.data).float().sum()

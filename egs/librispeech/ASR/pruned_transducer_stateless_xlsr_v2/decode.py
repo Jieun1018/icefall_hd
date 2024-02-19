@@ -858,8 +858,11 @@ def main():
         dev_dl = commonvoice.valid_dataloaders(dev_cuts)
         test_dl = commonvoice.test_dataloaders(test_cuts)
 
-        test_sets = ["dev", "test"]
-        test_dl = [dev_dl, test_dl]
+        test_sets = ["dev"]
+        test_dl = [dev_dl]
+
+        #test_sets = ["dev", "test"]
+        #test_dl = [dev_dl, test_dl]
 
     for test_set, test_dl in zip(test_sets, test_dl):
         results_dict = decode_dataset(

@@ -3,9 +3,9 @@ for method in lid; do
 	  --input-strategy AudioSamples \
 	  --enable-spec-aug False \
 	  --additional-block True \
-	  --model-name epoch-30.pt \
-	  --exp-dir ./pruned_transducer_stateless_xlsr_v2/xlsr_lid \
-	  --max-duration 400 \
+	  --model-name best-train-loss.pt \
+	  --exp-dir ./pruned_transducer_stateless_xlsr_v2/xlsr_lid_allsec \
+	  --max-duration 100 \
 	  --decoding-method $method \
 	  --max-sym-per-frame 1 \
 	  --encoder-type xlsr \

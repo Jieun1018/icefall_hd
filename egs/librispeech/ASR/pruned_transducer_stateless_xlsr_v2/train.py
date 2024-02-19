@@ -830,6 +830,8 @@ def compute_loss(
             target_lang.append(0)
         elif lang == 'es':
             target_lang.append(1)
+        elif lang == 'ko':
+            target_lang.append(2)
     
     target_lang = torch.tensor(target_lang, dtype=torch.long)
     ###
@@ -1435,7 +1437,6 @@ def run(rank, world_size, args, wb=None):
         valid_cuts = commonvoice.dev_full_cuts()
         #valid_cuts += commonvoice.dev_es_cuts()
         valid_dl = commonvoice.valid_dataloaders(valid_cuts)
-    
     
     '''
     if not params.print_diagnostics:
