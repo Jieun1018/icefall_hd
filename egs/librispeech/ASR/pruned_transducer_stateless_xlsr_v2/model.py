@@ -165,6 +165,7 @@ class Transducer(nn.Module):
             ce_loss = self.ce_loss(lid_final, target_lang)
             #prob = lid_final.max(dim=1)[0]
             #pred = lid_final.max(dim=1)[1]
+
             num_corrects = (torch.max(lid_final, 1)[1].view(target_lang.size()).data == target_lang.data).float().sum()
             acc = 100 * num_corrects / lid_final.size(0)
             

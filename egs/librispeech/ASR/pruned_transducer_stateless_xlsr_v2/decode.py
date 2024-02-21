@@ -448,16 +448,25 @@ def decode_one_batch(
         
         final = []
         final = torch.tensor(final).to('cuda')
-        final = output[0][:, 100, :]
 
+        # for 2 seconds lid
+        final = output[0][:, 100, :]
+        
+        """ 
+        # for all seconds lid
+        for i in range(len(encoder_out_lens)):
+            new_output = output[0][i, encoder_out_lens[i]-1, :]
+            new_output = new_output.reshape(1, -1)
+            final = torch.cat((final, new_output), dim=0)
+        """
         lid_final = model.lid_linear(final)
         lid_final = model.softmax(lid_final)
-        print('lid_f:', lid_final)
-        exit()
+        
         #ref lid
         target_lang = []
         target_en, target_es, target_ko = 0, 0, 0
-        
+        hyp_en, hyp_es, hyp_ko = 0, 0, 0
+
         for sup in supervisions["cut"]:
             lang = sup.supervisions[0].language
             if lang == 'en':
@@ -471,13 +480,27 @@ def decode_one_batch(
                 target_ko += 1
 
         target_lang = torch.tensor(target_lang, dtype=torch.long).to('cuda')
+        hyp_lang = torch.max(lid_final, 1)[1]
+        print(target_lang)
+        print(hyp_lang)
+        
+        ### Accuracy per language ###
+        for i, hyp in enumerate(hyp_lang):
+            if target_lang[i] == hyp:
+                if hyp == 0:
+                    hyp_en += 1
+                elif hyp == 1:
+                    hyp_es += 1
+                elif hyp == 2:
+                    hyp_ko += 1
+        #############################
 
         #Compute accuracy
         num_corrects = (torch.max(lid_final, 1)[1].view(target_lang.size()).data == target_lang.data).float().sum()
         acc = 100 * num_corrects / lid_final.size(0)
         utt_num = lid_final.size(0)
 
-        return num_corrects, utt_num
+        return num_corrects, utt_num, target_en, target_es, target_ko, hyp_en, hyp_es, hyp_ko
 
 
     else:
@@ -558,6 +581,8 @@ def decode_dataset(
     
     tot_utt = 0
     tot_num_corrects = 0
+    tot_en_utt, tot_es_utt, tot_ko_utt = 0, 0, 0
+    tot_en_corrects, tot_es_corrects, tot_ko_corrects = 0, 0, 0
 
     try:
         num_batches = len(dl)
@@ -586,7 +611,20 @@ def decode_dataset(
         if params.decoding_method == 'lid':
             tot_num_corrects += int(hyps_dict[0])
             tot_utt += hyps_dict[1]
-            print('calculating acc...', 100 * tot_num_corrects / tot_utt)
+            tot_en_utt += int(hyps_dict[2])
+            tot_es_utt += int(hyps_dict[3])
+            tot_ko_utt += int(hyps_dict[4])
+            tot_en_corrects += int(hyps_dict[5])
+            tot_es_corrects += int(hyps_dict[6])
+            tot_ko_corrects += int(hyps_dict[7])
+            
+            if tot_en_utt != 0:
+                print('calculating en acc...', 100 * tot_en_corrects / tot_en_utt)
+            if tot_es_utt != 0:
+                print('calculating es acc...', 100 * tot_es_corrects / tot_es_utt)
+            if tot_ko_utt != 0:
+                print('calculating ko acc...', 100 * tot_ko_corrects / tot_ko_utt)
+            print('calculating total acc...', 100 * tot_num_corrects / tot_utt)
             continue
         for name, hyps in hyps_dict.items():
             this_batch = []
