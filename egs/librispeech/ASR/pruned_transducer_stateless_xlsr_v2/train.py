@@ -801,7 +801,7 @@ def compute_loss(
     feature = feature.to(device)
 
     supervisions = batch["supervisions"]
-     
+    
     if feature.ndim == 2:
         feature_lens = []
         for supervision in supervisions['cut']:
@@ -820,19 +820,28 @@ def compute_loss(
     warm_step = params.warm_step
 
     texts = batch["supervisions"]["text"]
-   
+    
     ### For LID
     target_lang = []
+    target_en, target_es, target_ko = 0, 0, 0
+    lang = ''
 
     for sup in batch["supervisions"]["cut"]:
-        lang = sup.supervisions[0].language
+        if sup.supervisions[0].language == None:
+            lang = "ko"
+        else:
+            lang = sup.supervisions[0].language
+
         if lang == 'en':
             target_lang.append(0)
+            target_en += 1
         elif lang == 'es':
             target_lang.append(1)
+            target_es += 1
         elif lang == 'ko':
             target_lang.append(2)
-    
+            target_ko += 1
+
     target_lang = torch.tensor(target_lang, dtype=torch.long)
     ###
 
@@ -848,6 +857,9 @@ def compute_loss(
             am_scale=params.am_scale,
             lm_scale=params.lm_scale,
             target_lang=target_lang,
+            #target_en=target_en,
+            #target_es=target_es,
+            #target_ko=target_ko,
         )
         
         if params.lid:
@@ -1399,7 +1411,7 @@ def run(rank, world_size, args, wb=None):
         commonvoice = CommonVoiceAsrDataModule(args)
         
         train_cuts = commonvoice.train_full_cuts()
-        #train_cuts += commonvoice.train_es_cuts()
+        #train_cuts = commonvoice.train_ko_cuts()
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds

@@ -83,6 +83,7 @@ class Transducer(nn.Module):
             self.lstm = nn.LSTM(512, 256, 1, batch_first=True)
             self.lid_linear = nn.Linear(256, 3)
             self.softmax = nn.Softmax(dim=1)
+            #self.ce_loss = nn.CrossEntropyLoss(reduction='none')
             self.ce_loss = nn.CrossEntropyLoss(reduction='mean')
 
         else:
@@ -97,7 +98,10 @@ class Transducer(nn.Module):
         am_scale: float = 0.0,
         lm_scale: float = 0.0,
         target_lang: torch.Tensor = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        #target_en,
+        #target_es,
+        #target_ko,
+   ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
           x:
@@ -147,25 +151,65 @@ class Transducer(nn.Module):
             final = torch.tensor(final).to('cuda')
             
             # for 2 seconds lid
-            final = output[0][:, 100, :]
+            #final = output[0][:, 100, :]
 
-            '''
             # for all seconds lid
             for i in range(len(x_lens)):
                 new_output = output[0][i, x_lens[i]-1, :]
                 new_output = new_output.reshape(1, -1)
                 final = torch.cat((final, new_output), dim=0)
-            '''
 
             lid_final = self.lid_linear(final)
             lid_final = self.softmax(lid_final)
             #lid_prob = self.softmax(lid_final)
-
-            # Compute CE Loss
+            
+            ### Compute CE Loss
             ce_loss = self.ce_loss(lid_final, target_lang)
             #prob = lid_final.max(dim=1)[0]
             #pred = lid_final.max(dim=1)[1]
 
+            ### Compute CE Loss per language
+            """
+            new_tar_en, new_tar_es, new_tar_ko = 0, 0, 0
+            
+            if target_ko == 0:
+                multiples = target_en * target_es
+            if target_en == 0:
+                multiples = target_es * target_ko
+            if target_es == 0:
+                multiples = target_en * target_ko
+            if target_ko == 0 and target_es == 0:
+                multiples = target_en
+            if target_en == 0 and target_es == 0:
+                multiples = target_ko
+            if target_ko == 0 and target_en == 0:
+                multiples = target_es
+            if target_ko != 0 and target_en != 0 and target_es != 0:
+                multiples = target_en * target_es * target_ko
+           
+            try: new_tar_en = multiples / target_en
+            except: new_tar_en = 0
+            try: new_tar_es = multiples / target_es
+            except: new_tar_es = 0
+            try: new_tar_ko = multiples / target_ko
+            except: new_tar_ko = 0
+            
+            denom = new_tar_en + new_tar_es + new_tar_ko
+           
+            ratio_en = new_tar_en / denom
+            ratio_es = new_tar_es / denom
+            ratio_ko = new_tar_ko / denom
+            
+            for i, t_ln in enumerate(target_lang):
+                if t_ln == 0:
+                    ce_loss[i] = ce_loss[i] * ratio_en
+                elif t_ln == 1:
+                    ce_loss[i] = ce_loss[i] * ratio_es
+                elif t_ln == 2:
+                    ce_loss[i] = ce_loss[i] * ratio_ko
+
+            ce_loss = sum(ce_loss) / len(ce_loss)
+            """
             num_corrects = (torch.max(lid_final, 1)[1].view(target_lang.size()).data == target_lang.data).float().sum()
             acc = 100 * num_corrects / lid_final.size(0)
             

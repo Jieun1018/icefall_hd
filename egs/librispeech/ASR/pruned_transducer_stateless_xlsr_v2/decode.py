@@ -450,15 +450,14 @@ def decode_one_batch(
         final = torch.tensor(final).to('cuda')
 
         # for 2 seconds lid
-        final = output[0][:, 100, :]
+        #final = output[0][:, 100, :]
         
-        """ 
         # for all seconds lid
         for i in range(len(encoder_out_lens)):
             new_output = output[0][i, encoder_out_lens[i]-1, :]
             new_output = new_output.reshape(1, -1)
             final = torch.cat((final, new_output), dim=0)
-        """
+        
         lid_final = model.lid_linear(final)
         lid_final = model.softmax(lid_final)
         
@@ -466,9 +465,13 @@ def decode_one_batch(
         target_lang = []
         target_en, target_es, target_ko = 0, 0, 0
         hyp_en, hyp_es, hyp_ko = 0, 0, 0
+        lang = ''
 
         for sup in supervisions["cut"]:
-            lang = sup.supervisions[0].language
+            if sup.supervisions[0].language == None:
+                lang = "ko"
+            else:
+                lang = sup.supervisions[0].language
             if lang == 'en':
                 target_lang.append(0)
                 target_en += 1
@@ -918,14 +921,19 @@ def main():
             word_table=word_table,
             decoding_graph=decoding_graph,
         )
+        
+        if params.decoding_method == "lid":
+            logging.info("Done!")
+        
+        else:
+            save_results(
+                params=params,
+                test_set_name=test_set,
+                results_dict=results_dict,
+            )
 
-        save_results(
-            params=params,
-            test_set_name=test_set,
-            results_dict=results_dict,
-        )
-
-    logging.info("Done!")
+            logging.info("Done!")
+    #logging.info("Done!")
 
 
 if __name__ == "__main__":

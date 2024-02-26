@@ -1019,6 +1019,14 @@ class CommonVoiceAsrDataModule:
           ) 
 
     @lru_cache()
+    def train_ko_cuts(self) -> CutSet:
+          logging.info("About to get train-es cuts")
+          return load_manifest_lazy(
+              self.args.cv_manifest_dir / "../../full/fbank/hd100_cuts_train-clean-100.jsonl.gz"
+          ) 
+
+
+    @lru_cache()
     def dev_full_cuts(self) -> CutSet:
         logging.info("About to get dev-full cuts")
         return load_manifest_lazy(
