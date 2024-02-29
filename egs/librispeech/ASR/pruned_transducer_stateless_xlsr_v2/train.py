@@ -501,6 +501,15 @@ def get_parser():
         default=True,
         help="Whether to use half precision training.",
     )
+    
+    ##### for Multilingual ASR #####
+    parser.add_argument(
+        "--lang-type",
+        type=str,
+        default="en",
+        help="To fine-tune XLSR with multilingual data(e.g. en, es, ko)",
+    )
+    ################################
 
     add_model_arguments(parser)
     add_rep_arguments(parser)
@@ -1409,9 +1418,17 @@ def run(rank, world_size, args, wb=None):
             train_cuts += librispeech.train_other_500_cuts()
     else:
         commonvoice = CommonVoiceAsrDataModule(args)
+                
+        if params.lid == True:
+            train_cuts = commonvoice.train_full_cuts()
         
-        train_cuts = commonvoice.train_full_cuts()
-        #train_cuts = commonvoice.train_ko_cuts()
+        else:
+            if params.lang_type == 'en':
+                train_cuts = commonvoice.train_en_cuts()
+            elif params.lang_type == 'es':
+                train_cuts = commonvoice.train_es_cuts()
+            elif params.lang_type == 'ko':
+                train_cuts = commonvoice.train_ko_cuts()
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds
@@ -1446,10 +1463,19 @@ def run(rank, world_size, args, wb=None):
             train_cuts, sampler_state_dict=sampler_state_dict
         )
 
-        valid_cuts = commonvoice.dev_full_cuts()
-        #valid_cuts += commonvoice.dev_es_cuts()
+        if params.lid == True:
+            valid_cuts = commonvoice.dev_full_cuts()
+        
+        else: 
+            if params.lang_type == 'en':
+                valid_cuts = commonvoice.dev_en_cuts()
+            elif params.lang_type == 'es':
+                valid_cuts = commonvoice.dev_es_cuts()
+            elif params.lang_type == 'ko':
+                valid_cuts = commonvoice.dev_ko_cuts()
+        
         valid_dl = commonvoice.valid_dataloaders(valid_cuts)
-    
+        
     '''
     if not params.print_diagnostics:
         scan_pessimistic_batches_for_oom(

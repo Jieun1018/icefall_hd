@@ -22,6 +22,7 @@ import k2
 import torch
 import torch.nn as nn
 from encoder_interface import EncoderInterface
+from scaling import ScaledLinear
 
 from icefall.utils import add_sos
 
@@ -65,16 +66,24 @@ class Transducer(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         self.joiner = joiner
+        
 
-        self.simple_am_proj = nn.Linear(
+        #self.simple_am_proj = nn.Linear(
+        #    encoder_dim,
+        #    vocab_size,
+        #)
+
+        self.simple_am_proj = ScaledLinear(
             encoder_dim,
             vocab_size,
         )
-        self.simple_lm_proj = nn.Linear(decoder_dim, vocab_size)
+        self.simple_lm_proj = ScaledLinear(decoder_dim, vocab_size)
+        #self.simple_lm_proj = nn.Linear(decoder_dim, vocab_size)
 
         self.ctc_output = nn.Sequential(
             nn.Dropout(p=0.1),
-            nn.Linear(encoder_dim, vocab_size),
+            ScaledLinear(encoder_dim, vocab_size),
+            #nn.Linear(encoder_dim, vocab_size),
             nn.LogSoftmax(dim=-1),
         )
 

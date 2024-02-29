@@ -19,6 +19,8 @@ from nets_utils import make_pad_mask
 from encoder_interface import EncoderInterface
 from torch import Tensor, nn
 
+from scaling import ScaledLinear
+
 from icefall.utils import make_pad_mask, subsequent_chunk_mask
 try:
     import fairseq
@@ -79,7 +81,8 @@ class XLSREncoder(EncoderInterface):
         if model.cfg.encoder_embed_dim != output_size or additional_block:
             # TODO(xkc09): try LSTM
             self.output_layer = torch.nn.Sequential(
-                torch.nn.Linear(model.cfg.encoder_embed_dim, output_size),
+                ScaledLinear(model.cfg.encoder_embed_dim, output_size),
+                #torch.nn.Linear(model.cfg.encoder_embed_dim, output_size),
                 torch.nn.LayerNorm(output_size),
                 torch.nn.GELU(),
             )
