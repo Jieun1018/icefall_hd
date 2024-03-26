@@ -197,11 +197,11 @@ class MultiXLSREncoder(EncoderInterface):
             model = models[0]
             model.feature_grad_mult = 0.0 ## for conv network freeze
             model.mask_prob = 0.5 ## for conv network freeze
-             
+            
             self.pretrained_params = copy.deepcopy(model.state_dict())
 
             self.encoders.append(model)
-
+            
         if model.cfg.encoder_embed_dim != output_size or additional_block:
             # TODO(xkc09): try LSTM
             self.output_layer = [torch.nn.Sequential(
@@ -254,13 +254,35 @@ class MultiXLSREncoder(EncoderInterface):
         
         with torch.no_grad() if not ft else contextlib.nullcontext():
             cnn_outputs = self.encoders[0].feature_extractor(xs_pad)
-            #
-            enc_outputs = self.encoders(
+            
+            ## TODO 1: 아래에 LID 코드를 짜세용
+            ##########LID 경계선###############
+            output = lstm(cnn_outputs)
+
+            final = []
+            final = torch.tensor(final).to('cuda')
+
+            for i in range(len(x_lens)):
+                new_output = output[0][i, x_lens[i]-1, :]
+                new_output = new_output.reshape(1, -1)
+                final = torch.cat((final, new_output), dim=0)
+
+            lid_final = linear(final)
+            lid_final = softmax(lid_final)
+
+            max_lid = torch.argmax(lid_final, dim=1)
+            #print(max_lid) #숫자 하나로 받도록
+            ##########LID 경계선###############
+
+            ## TODO 2: 아래에 LID 결과에 따라 적절히 self.encoders에 넣으세용~
+            ################################################################
+            enc_outputs = self.encoders[max_lid](
                 xs_pad,
                 masks,
                 mask = ft,
                 features_only=True,
             )
+            ##################################################################
 
         xs_pad = enc_outputs["x"]  # (B,T,C),
         bs = xs_pad.shape[0]
@@ -269,9 +291,12 @@ class MultiXLSREncoder(EncoderInterface):
             olens = (~masks).sum(dim=1)  # (B)
         else:
             olens = torch.IntTensor([xs_pad.shape[1]]).repeat(bs).to(xs_pad.device)
-
+        
+        ##TODO 3: LID 결과에 따라 적절히 output_layer에 넣으세용~
+        ########################################################
         if self.output_layer is not None:
-            xs_pad = self.output_layer(xs_pad)
+            xs_pad = self.output_layer[max_lid](xs_pad)
+        ########################################################
 
         return xs_pad, olens, cnn_outputs
 

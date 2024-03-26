@@ -89,7 +89,7 @@ def get_parser():
         default="",
         help="""It specifies the model file name to use for decoding.""",
     )
-
+    
     parser.add_argument(
         "--epoch",
         type=int,
@@ -772,9 +772,49 @@ def main():
 
     logging.info("About to create model")
     model = get_transducer_model(params)
-    
-    if params.model_name:
+    #print(dir(model.encoder))
+
+    if params.model_name and params.language_num == 1:
         load_checkpoint(f"{params.exp_dir}/{params.model_name}", model)
+    elif params.model_name and params.language_num > 1:
+        model_names = params.model_name.split(',')
+        lid_model = f"{params.exp_dir}/{model_names[0]}"
+        lid_model = torch.load(lid_model)['model']
+        for n, p in model.named_parameters():
+            if 'lstm' in n or 'lid' in n:
+                p.data = lid_model[n]
+
+        ##TODO: 모델 로드, 파라미터 덮어씌우기
+        ##### en model #####
+        en_model = f"{params.exp_dir}/{model_names[1]}"
+        en_model = torch.load(en_model)['model']
+        #print(en_model.keys())
+        # encoder
+        for n, p in model.encoder.encoders[0].named_parameters():
+            p.data = en_model[f"encoder.encoders.{n}"]
+        # decoder
+        for n, p in model.decoder[0].named_parameters():
+            p.data = en_model[f"decoder.{n}"]
+        # joiner
+        for n, p in model.joiner[0].named_parameters():
+            p.data = en_model[f"joiner.{n}"]
+
+        ##### es model #####
+        es_model = f"{params.exp_dir}/{model_names[2]}"
+        es_model = torch.load(es_model)['model']
+
+        # encoder
+        for n, p in model.encoder.encoders[1].named_parameters():
+            p.data = es_model[f"encoder.encoders.{n}"]
+        # decoder
+        for n, p in model.decoder[1].named_parameters():
+            p.data = es_model[f"decoder.{n}"]
+        # joiner
+        for n, p in model.joiner[1].named_parameters():
+            p.data = es_model[f"joiner.{n}"]
+
+        exit()
+        
     else:
         if not params.use_averaged_model:
             if params.iter > 0:

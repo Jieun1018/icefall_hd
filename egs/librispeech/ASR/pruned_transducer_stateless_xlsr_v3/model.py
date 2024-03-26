@@ -42,6 +42,7 @@ class Transducer(nn.Module):
         joiner_dim: int,
         vocab_size: int,
         lid=False,
+        language_num=1,
     ):
         """
         Args:
@@ -61,7 +62,8 @@ class Transducer(nn.Module):
         """
         super().__init__()
         assert isinstance(encoder, EncoderInterface), type(encoder)
-        assert hasattr(decoder, "blank_id")
+        assert hasattr(decoder, "blank_id") or hasattr(decoder[0], "blank_id")
+        self.language_num = language_num
 
         self.encoder = encoder
         self.decoder = decoder
@@ -144,8 +146,12 @@ class Transducer(nn.Module):
 
         assert x.size(0) == x_lens.size(0) == y.dim0
 
-        #encoder_out, x_lens, cnn_out = self.encoder(x, x_lens, self.lstm, self.lid_linear, self.softmax)
-        encoder_out, x_lens, cnn_out = self.encoder(x, x_lens)
+        # arg 추가해서 짜주기 #
+        if self.language_num == 1:
+            encoder_out, x_lens, cnn_out = self.encoder(x, x_lens)
+        else:
+            encoder_out, x_lens, cnn_out = self.encoder(x, x_lens, self.lstm, self.lid_linear, self.softmax)
+        #encoder_out, x_lens, cnn_out = self.encoder(x, x_lens)
         #encoder_out, x_lens = self.encoder(x, x_lens)
         assert torch.all(x_lens > 0)
 

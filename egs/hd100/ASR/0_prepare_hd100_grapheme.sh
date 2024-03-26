@@ -12,7 +12,8 @@ vocab_sizes=(
   # 500
 )
 
-dl_dir=data
+dl_dir=/DB/HD_100h/icefall/HD_100h
+#dl_dir=data
 kaldi_format_train=prepared_data/HD_100_train # wav
 kaldi_format_test=prepared_data/HD_100_test
 kaldi_format_lexicon=prepared_data/lm_grapheme/lexicon_grapheme.txt
