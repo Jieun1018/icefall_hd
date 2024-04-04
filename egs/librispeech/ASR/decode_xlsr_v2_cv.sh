@@ -5,7 +5,7 @@ for lang in "en"; do
 		    --enable-spec-aug False \
 		    --additional-block True \
 		    --model-name epoch-30.pt \
-		    --exp-dir /workspace/icefall_hd/egs/librispeech/ASR/pruned_transducer_stateless_xlsr_v2/$lang \
+		    --exp-dir /DB/results/icefall/$lang \
 		    --max-duration 25 \
 		    --decoding-method $method \
 		    --max-sym-per-frame 1 \
