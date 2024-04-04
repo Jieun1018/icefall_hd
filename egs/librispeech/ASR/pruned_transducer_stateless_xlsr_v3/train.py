@@ -646,9 +646,9 @@ def get_decoder_model(params: AttributeDict) -> nn.Module:
         )
     else:
         decoder = [Decoder(
-            vocab_size=params.vocab_size,
+            vocab_size=params.vocab_size[i],
             decoder_dim=params.decoder_dim,
-            blank_id=params.blank_id,
+            blank_id=params.blank_id[i],
             context_size=params.context_size,
         )
             for i in range(params.language_num)]
@@ -668,7 +668,7 @@ def get_joiner_model(params: AttributeDict) -> nn.Module:
             encoder_dim=params.encoder_dim if params.encoder_type == 'xlsr' else int(params.encoder_dims.split(",")[-1]),
             decoder_dim=params.decoder_dim,
             joiner_dim=params.joiner_dim,
-            vocab_size=params.vocab_size,
+            vocab_size=params.vocab_size[i],
         )
             for i in range(params.language_num)]
     return joiner

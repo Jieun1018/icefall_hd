@@ -56,7 +56,6 @@ from beam_search import (
     fast_beam_search_nbest_oracle,
     fast_beam_search_one_best,
     greedy_search,
-    greedy_search_multilingual,
     greedy_search_batch,
     modified_beam_search,
 )
@@ -76,8 +75,6 @@ from icefall.utils import (
     str2bool,
     write_error_stats,
 )
-import hgtk
-import unicodedata
 
 LOG_EPS = math.log(1e-10)
 
@@ -369,11 +366,7 @@ def decode_one_batch(
             simulate_streaming=True,
         )
     else:
-        if params.language_num == 1:
-            encoder_out, encoder_out_lens, cnn_out = model.encoder(x=feature, x_lens=feature_lens)
-        else:
-            encoder_out, encoder_out_lens, max_lid = model.encoder(x=feature, x_lens=feature_lens, lstm=model.lstm, linear=model.lid_linear, softmax=model.softmax, ctc_output=model.ctc_output)
-#self.lstm, self.lid_linear, self.softmax)
+        encoder_out, encoder_out_lens, cnn_out = model.encoder(x=feature, x_lens=feature_lens)
 
     hyps = []
 
@@ -432,14 +425,12 @@ def decode_one_batch(
         )
         for hyp in sp.decode(hyp_tokens):
             hyps.append(hyp.split())
-    elif params.decoding_method == "greedy_search_batch" and params.max_sym_per_frame == 1:
-        if params.language_num == 1:
-            hyp_tokens = greedy_search_batch(
-                model=model,
-                encoder_out=encoder_out,
-                encoder_out_lens=encoder_out_lens,
-            )
-
+    elif params.decoding_method == "greedy_search" and params.max_sym_per_frame == 1:
+        hyp_tokens = greedy_search_batch(
+            model=model,
+            encoder_out=encoder_out,
+            encoder_out_lens=encoder_out_lens,
+        )
         for hyp in sp.decode(hyp_tokens):
             hyps.append(hyp.split())
     elif params.decoding_method == "modified_beam_search":
@@ -515,7 +506,7 @@ def decode_one_batch(
         return num_corrects, utt_num, target_en, target_es, target_ko, hyp_en, hyp_es, hyp_ko
 
 
-    elif params.decoding_method == "greedy_search" or params.max_sym_per_frame > 1:
+    else:
         batch_size = encoder_out.size(0)
 
         for i in range(batch_size):
@@ -523,21 +514,11 @@ def decode_one_batch(
             encoder_out_i = encoder_out[i:i+1, :encoder_out_lens[i]]
             # fmt: on
             if params.decoding_method == "greedy_search":
-                if params.language_num == 1:
-                    hyp = greedy_search(
-                        model=model,
-                        encoder_out=encoder_out_i,
-                        max_sym_per_frame=params.max_sym_per_frame,
-                    )
-                else:
-                    lid = max_lid[i].item()
-                    hyp = greedy_search_multilingual(
-                        model=model,
-                        encoder_out=encoder_out_i,
-                        max_sym_per_frame=params.max_sym_per_frame,
-                        lid=lid,
-                    )
-
+                hyp = greedy_search(
+                    model=model,
+                    encoder_out=encoder_out_i,
+                    max_sym_per_frame=params.max_sym_per_frame,
+                )
             elif params.decoding_method == "beam_search":
                 hyp = beam_search(
                     model=model,
@@ -548,16 +529,10 @@ def decode_one_batch(
                 raise ValueError(
                     f"Unsupported decoding method: {params.decoding_method}"
                 )
-            if params.language_num == 1:
-                hyps.append(sp.decode(hyp).split())
-            else:
-                hyps.append(sp[lid].decode(hyp).split())
-
+            hyps.append(sp.decode(hyp).split())
 
     if params.decoding_method == "greedy_search":
-        if params.language_num == 1:
-            return {"greedy_search": hyps}
-        else: return {"greedy_search": hyps, "lid": max_lid}
+        return {"greedy_search": hyps}
     elif "fast_beam_search" in params.decoding_method:
         key = f"beam_{params.beam}_"
         key += f"max_contexts_{params.max_contexts}_"
@@ -635,7 +610,7 @@ def decode_dataset(
             word_table=word_table,
             batch=batch,
         )
-
+        
         if params.decoding_method == 'lid':
             tot_num_corrects += int(hyps_dict[0])
             tot_utt += hyps_dict[1]
@@ -654,63 +629,17 @@ def decode_dataset(
                 print('calculating ko acc...', 100 * tot_ko_corrects / tot_ko_utt)
             print('calculating total acc...', 100 * tot_num_corrects / tot_utt)
             continue
-        else:
-            max_lid = hyps_dict['lid']
-            del hyps_dict['lid']
-
-            ### warning: this code is written for batch size is 1.
-            assert max_lid.size(0) == 1
-
-            lid = max_lid.item()
-            ##### en, es일 경우 #####
-            if lid == 0 or lid == 1:
-                params.blank_id = sp[lid].piece_to_id("<blk>")
-                params.unk_id = sp[lid].piece_to_id("<unk>")
-                params.vocab_size = sp[lid].get_piece_size()
-                for name, hyps in hyps_dict.items():
-                    this_batch = []
-                    assert len(hyps) == len(texts)
-                    for cut_id, hyp_words, ref_text in zip(cut_ids, hyps, texts):
-                        ref_words = ref_text.split()
-                        this_batch.append((cut_id, ref_words, hyp_words))
-                        print('hyp: ', ' '.join(hyp_words))
-                        print('ref: ', ' '.join(ref_words))
-                    results[name].extend(this_batch)
-            ##########################
         
-            ##### ko일 경우 #####
-            elif lid == 2:
-                params.blank_id = sp[lid].piece_to_id("<blk>")
-                params.unk_id = sp[lid].piece_to_id("<unk>")
-                params.vocab_size = sp[lid].get_piece_size()
-                #params.vocab_size = sp_ko.get_piece_size()
-                for name, hyps in hyps_dict.items():
-                    this_batch = []
-                    assert len(hyps) == len(texts)
-                    for cut_id, hyp_words, ref_text in zip(cut_ids, hyps, texts):
-                        hyp_text = ' '.join(hyp_words)
-                        hyp_text = unicodedata.normalize('NFC',hyp_text)
-                        hyp_text = hyp_text.replace('ᄀ','ㄱ').replace('ᄂ','ㄴ').replace('ᄃ','ㄷ').replace('ᄅ','ㄹ').replace('ᄆ','ㅁ').replace('ᄇ','ㅂ').replace('ᄉ','ㅅ').replace('ᄋ','ㅇ').replace('ᄌ','ㅈ').replace('ᄎ','ㅊ').replace('ᄏ','ㅋ').replace('ᄐ','ㅊ').replace('ᄑ','ㅍ').replace('ᄒ','ㅎ').replace('ᆲ','ㄼ').replace('ᄡ','ㅄ').replace('ᆰ','ㄺ').replace('ᆴ','ㄾ').replace('ᆪ','ㄳ').replace('ᆬ','ㄵ').replace('ㄶ','ㄶ').replace('ᆱ','ㄻ').replace('ᆳ','ㄽ').replace('ㄽ','ᴥ').replace('ᆵ','ㄿ').replace('ᄚ','ㅀ')
-                        hyp_text = hyp_text.replace('ᴥ', '____')
-                        hyp_text = hgtk.text.decompose(hyp_text)
-                        hyp_text = hyp_text.replace('ᴥ','').replace('____','ᴥ')
-                        hyp_text = hgtk.text.compose(hyp_text)
-                        ref_text = hgtk.text.compose(ref_text.replace('ㄽ','ᴥ'))
-                        hyp_words = hyp_text.split()
-                        ref_words = ref_text.split()
-                        #print('ref_text:', ref_text)
-                        #print('hyp_text:', hyp_text)
-                        #print('ref_words:', ref_words)
-                        #print('hyp_words:', hyp_words)
-                        print('hyp: ', ' '.join(hyp_words))
-                        print('ref: ', ' '.join(ref_words))
-                        this_batch.append((cut_id, ref_words, hyp_words))
+        for name, hyps in hyps_dict.items():
+            this_batch = []
+            assert len(hyps) == len(texts)
+            for cut_id, hyp_words, ref_text in zip(cut_ids, hyps, texts):
+                ref_words = ref_text.split()
+                this_batch.append((cut_id, ref_words, hyp_words))
 
-                    results[name].extend(this_batch)
-            ##########################
-
-            num_cuts += len(texts)
-            print('')
+            results[name].extend(this_batch)
+        
+        num_cuts += len(texts)
 
         if batch_idx % log_interval == 0:
             batch_str = f"{batch_idx}/{num_batches}"
@@ -826,34 +755,26 @@ def main():
         device = torch.device("cuda", 0)
 
     logging.info(f"Device: {device}")
-
-    if params.language_num > 1:
-        bpe_models = params.bpe_model.split(',')
-        
-        sp_en = spm.SentencePieceProcessor()
-        sp_en.load(bpe_models[0])
-        
-        sp_es = spm.SentencePieceProcessor()
-        sp_es.load(bpe_models[1])
-        
-        sp_ko = spm.SentencePieceProcessor()
-        sp_ko.load(bpe_models[2])
-        
-        sp = [sp_en, sp_es, sp_ko]
-        
-        params.blank_id = [sp_lang.piece_to_id("<blk>") for sp_lang in sp]
-        params.unk_id = [sp_lang.piece_to_id("<unk>") for sp_lang in sp]
-        params.vocab_size = [sp_lang.get_piece_size() for sp_lang in sp]
-
-    else:
-        sp = spm.SentencePieceProcessor()
-        sp.load(params.bpe_model)
-        
-        params.blank_id = sp.piece_to_id("<blk>")
-        params.unk_id = sp.piece_to_id("<unk>")
-        params.vocab_size = sp.get_piece_size()
+    bpe_models = params.bpe_model.split(',')
+    
+    sp_en = spm.SentencePieceProcessor()
+    sp_en.load(bpe_models[0])
+    
+    sp_es = spm.SentencePieceProcessor()
+    sp_es.load(bpe_models[1])
+    
+    sp_ko = spm.SentencePieceProcessor()
+    sp_ko.load(bpe_models[2])
+    
+    #sp = spm.SentencePieceProcessor()
+    #sp.load(params.bpe_model)
 
     # <blk> and <unk> are defined in local/train_bpe_model.py
+    ###### 이 부분은 나중에 language 결정 될때 멀 쓸지 정해야 하는거 아닌감.. #####
+    params.blank_id = sp.piece_to_id("<blk>")
+    params.unk_id = sp.piece_to_id("<unk>")
+    params.vocab_size = sp.get_piece_size()
+
     if params.simulate_streaming:
         assert (
             params.causal_convolution
@@ -883,21 +804,12 @@ def main():
         # encoder
         for n, p in model.encoder.encoders[0].named_parameters():
             p.data = en_model[f"encoder.encoders.{n}"]
-        # encoder output layer
-        for n, p in model.encoder.output_layer[0].named_parameters():
-            p.data = en_model[f"encoder.output_layer.{n}"]
-
         # decoder
         for n, p in model.decoder[0].named_parameters():
             p.data = en_model[f"decoder.{n}"]
         # joiner
         for n, p in model.joiner[0].named_parameters():
             p.data = en_model[f"joiner.{n}"]
-        
-        for n, p in model.ctc_output[0].named_parameters():
-            print(p.data)
-            p.data = en_model[f"ctc_output.{n}"]
-            print(p.data)
 
         ##### es model #####
         es_model = f"{params.exp_dir}/{model_names[2]}"
@@ -906,20 +818,12 @@ def main():
         # encoder
         for n, p in model.encoder.encoders[1].named_parameters():
             p.data = es_model[f"encoder.encoders.{n}"]
-
-        # encoder output layer
-        for n, p in model.encoder.output_layer[1].named_parameters():
-            p.data = es_model[f"encoder.output_layer.{n}"]
-
         # decoder
         for n, p in model.decoder[1].named_parameters():
             p.data = es_model[f"decoder.{n}"]
         # joiner
         for n, p in model.joiner[1].named_parameters():
             p.data = es_model[f"joiner.{n}"]
-        
-        for n, p in model.ctc_output[1].named_parameters():
-            p.data = es_model[f"ctc_output.{n}"]
 
         ##### ko model #####
         ko_model = f"{params.exp_dir}/{model_names[3]}"
@@ -928,22 +832,15 @@ def main():
         # encoder
         for n, p in model.encoder.encoders[2].named_parameters():
             p.data = ko_model[f"encoder.encoders.{n}"]
-
-        # encoder output layer
-        for n, p in model.encoder.output_layer[2].named_parameters():
-            p.data = ko_model[f"encoder.output_layer.{n}"]
-
         # decoder
         for n, p in model.decoder[2].named_parameters():
             p.data = ko_model[f"decoder.{n}"]
         # joiner
         for n, p in model.joiner[2].named_parameters():
             p.data = ko_model[f"joiner.{n}"]
-        
-        for n, p in model.ctc_output[2].named_parameters():
-            p.data = ko_model[f"ctc_output.{n}"]
 
-        del lid_model, en_model, es_model, ko_model
+        exit()
+        
     else:
         if not params.use_averaged_model:
             if params.iter > 0:
@@ -1024,10 +921,6 @@ def main():
 
     model.to(device)
     model.eval()
-    if params.language_num > 1:
-        [model.encoder.output_layer[i].to(device) for i in range(params.language_num)]
-        [model.encoder.encoders[i].eval() for i in range(params.language_num)]
-        [model.encoder.output_layer[i].eval() for i in range(params.language_num)]
 
     if "fast_beam_search" in params.decoding_method:
         if params.decoding_method == "fast_beam_search_nbest_LG":
@@ -1075,7 +968,6 @@ def main():
 
         if params.lid == True:
             dev_cuts = commonvoice.dev_full_cuts()
-            #dev_cuts = commonvoice.dev_en_cuts()
             test_cuts = commonvoice.test_full_cuts()
 
         else:
@@ -1089,7 +981,7 @@ def main():
                 dev_cuts = commonvoice.dev_ko_cuts()
                 test_cuts = commonvoice.test_ko_cuts()
         
-        dev_dl = commonvoice.test_dataloaders(dev_cuts)
+        dev_dl = commonvoice.valid_dataloaders(dev_cuts)
         test_dl = commonvoice.test_dataloaders(test_cuts)
 
         #test_sets = ["dev"]
@@ -1099,24 +991,15 @@ def main():
         test_dl = [dev_dl, test_dl]
 
     for test_set, test_dl in zip(test_sets, test_dl):
-        if params.language_num == 1:
-            results_dict = decode_dataset(
-                dl=test_dl,
-                params=params,
-                model=model,
-                sp=sp,
-                word_table=word_table,
-                decoding_graph=decoding_graph,
-            )
-        else:
-            results_dict = decode_dataset(
-                dl=test_dl,
-                params=params,
-                model=model,
-                sp=sp,
-                word_table=word_table,
-                decoding_graph=decoding_graph,
-            )
+        results_dict = decode_dataset(
+            dl=test_dl,
+            params=params,
+            model=model,
+            sp=sp,
+            word_table=word_table,
+            decoding_graph=decoding_graph,
+        )
+        
         if params.decoding_method == "lid":
             logging.info("Done!")
         

@@ -73,20 +73,27 @@ class Transducer(nn.Module):
         #    encoder_dim,
         #    vocab_size,
         #)
-
-        self.simple_am_proj = ScaledLinear(
-            encoder_dim,
-            vocab_size,
-        )
-        self.simple_lm_proj = ScaledLinear(decoder_dim, vocab_size)
-        #self.simple_lm_proj = nn.Linear(decoder_dim, vocab_size)
-
-        self.ctc_output = nn.Sequential(
-            nn.Dropout(p=0.1),
-            ScaledLinear(encoder_dim, vocab_size),
-            #nn.Linear(encoder_dim, vocab_size),
-            nn.LogSoftmax(dim=-1),
-        )
+        
+        if language_num == 1:
+            self.simple_am_proj = ScaledLinear(
+                encoder_dim,
+                vocab_size,
+            )
+            self.simple_lm_proj = ScaledLinear(decoder_dim, vocab_size)
+        
+            self.ctc_output = nn.Sequential(
+                nn.Dropout(p=0.1),
+                ScaledLinear(encoder_dim, vocab_size),
+                #nn.Linear(encoder_dim, vocab_size),
+                nn.LogSoftmax(dim=-1),
+            )
+        else:
+            self.ctc_output = [nn.Sequential(
+                nn.Dropout(p=0.0),
+                ScaledLinear(encoder_dim, vocab_size[i]),
+                #nn.Linear(encoder_dim, vocab_size),
+                nn.LogSoftmax(dim=-1),
+            ) for i in range(language_num)]
 
         if lid == True:
             self.lid = True

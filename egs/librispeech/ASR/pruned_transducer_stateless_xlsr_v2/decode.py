@@ -425,7 +425,7 @@ def decode_one_batch(
         )
         for hyp in sp.decode(hyp_tokens):
             hyps.append(hyp.split())
-    elif params.decoding_method == "greedy_search" and params.max_sym_per_frame == 1:
+    elif params.decoding_method == "greedy_search_batch" and params.max_sym_per_frame == 1:
         hyp_tokens = greedy_search_batch(
             model=model,
             encoder_out=encoder_out,
@@ -633,6 +633,9 @@ def decode_dataset(
             this_batch = []
             assert len(hyps) == len(texts)
             for cut_id, hyp_words, ref_text in zip(cut_ids, hyps, texts):
+                print("hyp: ", ' '.join(hyp_words))
+                print("ref: ", ref_text)
+                print('')
                 ref_words = ref_text.split()
                 this_batch.append((cut_id, ref_words, hyp_words))
 
@@ -915,7 +918,7 @@ def main():
                 dev_cuts = commonvoice.dev_ko_cuts()
                 test_cuts = commonvoice.test_ko_cuts()
         
-        dev_dl = commonvoice.valid_dataloaders(dev_cuts)
+        dev_dl = commonvoice.test_dataloaders(dev_cuts)
         test_dl = commonvoice.test_dataloaders(test_cuts)
 
         #test_sets = ["dev"]
