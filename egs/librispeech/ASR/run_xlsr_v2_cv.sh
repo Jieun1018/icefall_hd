@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
 #for lang in "en" "es"; do
-for lang in "es" "en"; do
+for lang in "en"; do
 	./pruned_transducer_stateless_xlsr_v2/train.py \
 		 --wandb False \
 		 --input-strategy AudioSamples \
