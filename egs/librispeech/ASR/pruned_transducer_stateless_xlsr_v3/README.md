@@ -5,19 +5,21 @@
 - dev accuracy(%)
 
 | en | es | ko | avg |
+| --- | --- | --- | --- |
 | 89.26 | 95.89 | 99.55 | 94.90 |
 
 - test accuracy(%)
 
 | en | es | ko | avg |
+| --- | --- | --- | --- |
 | 85.50 | 93.57 | 99.58 | 92.89 |
 
 
 # Installation
 
 - dataset prepare
+
 1. CommonVoice dataset prepare(for English, Spanish)
-[prepare script link](https://github.com/JiHunKang123/icefall_HD/blob/master/egs/commonvoice/ASR/)
 
 ```bash
 cd icefall_HD/egs/commonvoice/ASR
@@ -28,6 +30,7 @@ cd icefall_HD/egs/commonvoice/ASR
 ```
 
 2. HD100 dataset prepare(for Korean)
+
 ```bash
 cd icefall_HD/egs/hd100/ASR_xlsr
 ./0_prepare_hd100_grapheme.sh
@@ -43,7 +46,7 @@ mv librispeech_cuts_test-clean.jsonl.gz hd_100_cuts_test-clean.jsonl.gz
 ```
 
 3. full dataset prepare(for train lid)
-	- This step must be performed after performing steps 1 and 2 above.
+	- This step **must be performed** after performing steps 1 and 2 above.
 
 ```bash
 cd icefall_HD/egs/librispeech/ASR/data
@@ -65,7 +68,6 @@ cat <en-test.jsonl.gz> <es-test.jsonl.gz> <ko-test.jsonl.gz> > cv-full_cuts_test
 
 # shuffle data within each file -> preparation done!
 ```
-
 
 - lid train command
 
