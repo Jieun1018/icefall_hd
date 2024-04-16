@@ -17,7 +17,7 @@
 
 # Installation
 
-- dataset prepare
+- Dataset preparation
 
 1. CommonVoice dataset prepare(for English, Spanish)
 
@@ -45,7 +45,7 @@ mv librispeech_cuts_test-clean.jsonl.gz hd_100_cuts_test-clean.jsonl.gz
 # move data folder to icefall_HD/egs/librispeech/ASR/data/ko or symbolic link ..
 ```
 
-3. full dataset prepare(for train lid)
+3. Full dataset prepare(for train lid)
 	- This step **must be performed** after performing steps 1 and 2 above.
 
 ```bash
@@ -69,7 +69,7 @@ cat <en-test.jsonl.gz> <es-test.jsonl.gz> <ko-test.jsonl.gz> > cv-full_cuts_test
 # shuffle data within each file -> preparation done!
 ```
 
-- lid train command
+- LID train command
 
 ```bash
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
@@ -104,7 +104,7 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
  --bpe-model data/en/lang_bpe_500/bpe.model
 ```
 
-- lid decode command
+- LID decode command
 
 ```bash
 for method in lid; do
@@ -126,3 +126,29 @@ for method in lid; do
 	  --bpe-model data/en/lang_bpe_500/bpe.model
 done
 ```
+
+- After lid model, en-xlsr, es-xlsr, ko-xlsr is ready: decoding command
+	- Models should be ready in **{exp-dir}/{model-name}** 
+```bash
+for method in greedy_search; do
+	./pruned_transducer_stateless_xlsr_v3/decode.py \
+	  --input-strategy AudioSamples \
+	  --enable-spec-aug False \
+	  --additional-block True \
+	  --exp-dir /DB/results/icefall \
+	  --max-duration 25 \
+	  --decoding-method $method \
+	  --max-sym-per-frame 1 \
+	  --encoder-type xlsr \
+	  --encoder-dim 1024 \
+	  --decoder-dim 1024 \
+	  --joiner-dim 1024 \
+	  --decode-data-type commonvoice \
+	  --lid True \
+	  --language-num 3 \
+	  --bucketing-sampler False \
+	  --model-name xlsr_lid_ko_hd100_allsec/best-train-loss.pt,en/epoch-30.pt,es/epoch-30.pt,ko/epoch-30.pt \
+	  --bpe-model data/en/lang_bpe_500/bpe.model,data/es/lang_bpe_500/bpe.model,data/ko/lang_bpe_250/bpe.model \
+done
+```
+
