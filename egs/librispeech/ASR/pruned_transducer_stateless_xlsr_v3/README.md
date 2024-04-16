@@ -1,57 +1,154 @@
-# Introduction
+# Spoken Language Identification
 
-Please refer to <https://icefall.readthedocs.io/en/latest/recipes/Non-streaming-ASR/librispeech/index.html> for how to run models in this recipe.
+- [English](https://commonvoice.mozilla.org/en/datasets), [Spanish](https://commonvoice.mozilla.org/es/datasets): CommonVoice 15.0
+- Korean:  HD100
+- dev accuracy(%)
 
-[./RESULTS.md](./RESULTS.md) contains the latest results.
+| en | es | ko | avg |
+| --- | --- | --- | --- |
+| 89.26 | 95.89 | 99.55 | 94.90 |
 
-# Transducers
+- test accuracy(%)
 
-There are various folders containing the name `transducer` in this folder.
-The following table lists the differences among them.
+| en | es | ko | avg |
+| --- | --- | --- | --- |
+| 85.50 | 93.57 | 99.58 | 92.89 |
 
-|                                       | Encoder             | Decoder            | Comment                                           |
-|---------------------------------------|---------------------|--------------------|---------------------------------------------------|
-| `transducer`                          | Conformer           | LSTM               |                                                   |
-| `transducer_stateless`                | Conformer           | Embedding + Conv1d | Using optimized_transducer from computing RNN-T loss  |
-| `transducer_stateless2`               | Conformer           | Embedding + Conv1d | Using torchaudio for computing RNN-T loss             |
-| `transducer_lstm`                     | LSTM                | LSTM               |                                                   |
-| `transducer_stateless_multi_datasets` | Conformer           | Embedding + Conv1d | Using data from GigaSpeech as extra training data |
-| `pruned_transducer_stateless`         | Conformer           | Embedding + Conv1d | Using k2 pruned RNN-T loss                        |
-| `pruned_transducer_stateless2`        | Conformer(modified) | Embedding + Conv1d | Using k2 pruned RNN-T loss                        |
-| `pruned_transducer_stateless3`        | Conformer(modified) | Embedding + Conv1d | Using k2 pruned RNN-T loss + using GigaSpeech as extra training data |
-| `pruned_transducer_stateless4`        | Conformer(modified) | Embedding + Conv1d | same as pruned_transducer_stateless2 + save averaged models periodically during training + delay penalty |
-| `pruned_transducer_stateless5`        | Conformer(modified) | Embedding + Conv1d | same as pruned_transducer_stateless4 + more layers + random combiner|
-| `pruned_transducer_stateless6`        | Conformer(modified) | Embedding + Conv1d | same as pruned_transducer_stateless4 + distillation with hubert|
-| `pruned_transducer_stateless7`        | Zipformer | Embedding + Conv1d | First experiment with Zipformer from Dan|
-| `pruned_transducer_stateless7_ctc`    | Zipformer | Embedding + Conv1d | Same as pruned_transducer_stateless7, but with extra CTC head|
-| `pruned_transducer_stateless7_ctc_bs` | Zipformer | Embedding + Conv1d | pruned_transducer_stateless7_ctc + blank skip |
-| `pruned_transducer_stateless7_streaming` | Streaming Zipformer | Embedding + Conv1d | streaming version of pruned_transducer_stateless7 |
-| `pruned_transducer_stateless7_streaming_multi` | Streaming Zipformer | Embedding + Conv1d | same as pruned_transducer_stateless7_streaming, trained on LibriSpeech + GigaSpeech  |
-| `pruned_transducer_stateless8`        | Zipformer | Embedding + Conv1d | Same as pruned_transducer_stateless7, but using extra data from GigaSpeech|
-| `pruned_stateless_emformer_rnnt2`     | Emformer(from torchaudio) | Embedding + Conv1d | Using Emformer from torchaudio for streaming ASR|
-| `conv_emformer_transducer_stateless`  | ConvEmformer | Embedding + Conv1d | Using ConvEmformer for streaming ASR + mechanisms in reworked model |
-| `conv_emformer_transducer_stateless2` | ConvEmformer | Embedding + Conv1d | Using ConvEmformer with simplified memory for streaming ASR + mechanisms in reworked model |
-| `lstm_transducer_stateless`           | LSTM | Embedding + Conv1d | Using LSTM with mechanisms in reworked model |
-| `lstm_transducer_stateless2`          | LSTM | Embedding + Conv1d | Using LSTM with mechanisms in reworked model + gigaspeech (multi-dataset setup) |
-| `lstm_transducer_stateless3`          | LSTM | Embedding + Conv1d | Using LSTM with mechanisms in reworked model + gradient filter + delay penalty |
-| `zipformer`                           | Upgraded Zipformer | Embedding + Conv1d | The latest recipe |
 
-The decoder in `transducer_stateless` is modified from the paper
-[Rnn-Transducer with Stateless Prediction Network](https://ieeexplore.ieee.org/document/9054419/).
-We place an additional Conv1d layer right after the input embedding layer.
+# How to use
 
-# CTC
+- Dataset preparation
 
-|                              | Encoder            | Comment                      |
-|------------------------------|--------------------|------------------------------|
-| `conformer-ctc`              | Conformer          | Use auxiliary attention head |
-| `conformer-ctc2`             | Reworked Conformer | Use auxiliary attention head |
-| `conformer-ctc3`             | Reworked Conformer | Streaming version + delay penalty |
-| `zipformer`                  | Upgraded Zipformer | Use auxiliary transducer head | The latest recipe |
+1. CommonVoice dataset prepare(for English, Spanish)
 
-# MMI
+```bash
+cd icefall_HD/egs/commonvoice/ASR
+./prepare_en.sh
+./prepare_es.sh
 
-|                              | Encoder   | Comment                                           |
-|------------------------------|-----------|---------------------------------------------------|
-| `conformer-mmi`              | Conformer |                                                   |
-| `zipformer-mmi`              | Zipformer | CTC warmup + use HP as decoding graph for decoding |
+# MUST move data folder to icefall_HD/egs/librispeech/ASR/data/{language} or symbolic link ..
+```
+
+2. HD100 dataset prepare(for Korean)
+
+```bash
+cd icefall_HD/egs/hd100/ASR_xlsr
+./0_prepare_hd100_grapheme.sh
+
+# for name edit.. -> This can be skipped #
+cd data/fbank
+mv librispeech_cuts_train-clean-100.jsonl.gz hd_100_cuts_train-clean-100.jsonl.gz
+mv librispeech_cuts_dev-clean.jsonl.gz hd_100_cuts_dev-clean.jsonl.gz
+mv librispeech_cuts_test-clean.jsonl.gz hd_100_cuts_test-clean.jsonl.gz
+##### This can be skipped #####
+
+# MUST move data folder to icefall_HD/egs/librispeech/ASR/data/ko or symbolic link ..
+```
+
+3. Full dataset prepare(for train lid)
+	- This step **must be performed** after performing steps 1 and 2 above.
+
+```bash
+cd icefall_HD/egs/librispeech/ASR/data
+mkdir full/fbank
+
+cd ../en/fbank
+cp cv-en_cuts_*.jsonl.gz ../../full/fbank
+
+cd ../es/fbank
+cp cv-es_cuts_*.jsonl.gz ../../full/fbank
+
+cd ../ko/fbank
+cp hd100_cuts_*.jsonl.gz ../../full/fbank
+
+# create new train, dev, and test jsonl.gz files
+cat <en-train.jsonl.gz> <es-train.jsonl.gz> <ko-train.jsonl.gz> > cv-full_cuts_train.jsonl.gz
+cat <en-dev.jsonl.gz> <es-dev.jsonl.gz> <ko-dev.jsonl.gz> > cv-full_cuts_dev.jsonl.gz
+cat <en-test.jsonl.gz> <es-test.jsonl.gz> <ko-test.jsonl.gz> > cv-full_cuts_test.jsonl.gz
+
+# shuffle data within each file -> preparation done!
+```
+
+- LID train command
+
+```bash
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
+
+./pruned_transducer_stateless_xlsr_v2/train.py \
+ --wandb False \
+ --input-strategy AudioSamples \
+ --enable-spec-aug False \
+ --multi-optim False \
+ --world-size 4 \
+ --num-epochs 30 \
+ --start-epoch 1 \
+ --exp-dir ./pruned_transducer_stateless_xlsr_v2/tmp \
+ --max-duration 25 \
+ --freeze-finetune-updates 0 \
+ --encoder-dim 1024 \
+ --decoder-dim 1024 \
+ --joiner-dim 1024 \
+ --use-fp16 1 \
+ --base-lr 0.01 \
+ --peak-dec-lr 0.04175 \
+ --peak-enc-lr 0.0003859 \
+ --accum-grads 8 \
+ --encoder-type xlsr \
+ --additional-block True \
+ --prune-range 5 \
+ --context-size 2 \
+ --ctc-loss-scale 0 \
+ --data-type commonvoice \
+ --lid True \
+ --decode-interval 30000 \
+ --bpe-model data/en/lang_bpe_500/bpe.model
+```
+
+- LID decode command
+
+```bash
+for method in lid; do
+	./pruned_transducer_stateless_xlsr_v2/decode.py \
+	  --input-strategy AudioSamples \
+	  --enable-spec-aug False \
+	  --additional-block True \
+	  --model-name best-train-loss.pt \
+	  --exp-dir ./pruned_transducer_stateless_xlsr_v2/tmp \
+	  --max-duration 25 \
+	  --decoding-method $method \
+	  --max-sym-per-frame 1 \
+	  --encoder-type xlsr \
+	  --encoder-dim 1024 \
+	  --decoder-dim 1024 \
+	  --joiner-dim 1024 \
+	  --decode-data-type commonvoice \
+	  --lid True \
+	  --bpe-model data/en/lang_bpe_500/bpe.model
+done
+```
+
+- After lid model, en-xlsr, es-xlsr, ko-xlsr is ready: decoding command
+	- Models should be ready in **{exp-dir}/{model-name}** 
+```bash
+for method in greedy_search; do
+	./pruned_transducer_stateless_xlsr_v3/decode.py \
+	  --input-strategy AudioSamples \
+	  --enable-spec-aug False \
+	  --additional-block True \
+	  --exp-dir /DB/results/icefall \
+	  --max-duration 25 \
+	  --decoding-method $method \
+	  --max-sym-per-frame 1 \
+	  --encoder-type xlsr \
+	  --encoder-dim 1024 \
+	  --decoder-dim 1024 \
+	  --joiner-dim 1024 \
+	  --decode-data-type commonvoice \
+	  --lid True \
+	  --language-num 3 \
+	  --bucketing-sampler False \
+	  --model-name xlsr_lid_ko_hd100_allsec/best-train-loss.pt,en/epoch-30.pt,es/epoch-30.pt,ko/epoch-30.pt \
+	  --bpe-model data/en/lang_bpe_500/bpe.model,data/es/lang_bpe_500/bpe.model,data/ko/lang_bpe_250/bpe.model \
+done
+```
+
