@@ -673,8 +673,8 @@ def decode_dataset(
                     for cut_id, hyp_words, ref_text in zip(cut_ids, hyps, texts):
                         ref_words = ref_text.split()
                         this_batch.append((cut_id, ref_words, hyp_words))
-                        print('hyp: ', ' '.join(hyp_words))
                         print('ref: ', ' '.join(ref_words))
+                        print('hyp: ', ' '.join(hyp_words))
                     results[name].extend(this_batch)
             ##########################
         
@@ -702,8 +702,8 @@ def decode_dataset(
                         #print('hyp_text:', hyp_text)
                         #print('ref_words:', ref_words)
                         #print('hyp_words:', hyp_words)
-                        print('hyp: ', ' '.join(hyp_words))
                         print('ref: ', ' '.join(ref_words))
+                        print('hyp: ', ' '.join(hyp_words))
                         this_batch.append((cut_id, ref_words, hyp_words))
 
                     results[name].extend(this_batch)

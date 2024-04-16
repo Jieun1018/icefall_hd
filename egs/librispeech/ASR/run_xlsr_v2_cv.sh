@@ -8,7 +8,7 @@ for lang in "en"; do
 		 --multi-optim True \
 		 --world-size 4 \
 		 --num-epochs 30 \
-		 --start-epoch 1 \
+		 --start-epoch 7 \
 		 --exp-dir ./pruned_transducer_stateless_xlsr_v2/$lang \
 		 --max-duration 25 \
 		 --freeze-finetune-updates 800 \
