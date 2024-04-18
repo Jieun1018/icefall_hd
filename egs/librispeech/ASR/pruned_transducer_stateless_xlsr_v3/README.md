@@ -128,7 +128,8 @@ done
 ```
 
 - After lid model, en-xlsr, es-xlsr, ko-xlsr is ready: decoding command
-	- Models should be ready in **{exp-dir}/{model-name}** 
+	- Models should be ready in **{exp-dir}/{model-name}**
+ 	- Models should be **separated by commas(,)**
 ```bash
 for method in greedy_search; do
 	./pruned_transducer_stateless_xlsr_v3/decode.py \
